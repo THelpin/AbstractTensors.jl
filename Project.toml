@@ -1,0 +1,13 @@
+name = "AbstractTensors"
+uuid = "55c8b40c-cbfa-4141-803e-4831c9841971"
+authors = ["THelpin <thomas1.helpin@gmail.com> and contributors"]
+version = "1.0.0"
+
+[compat]
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
