@@ -188,8 +188,11 @@ function is_covariant(t::TensorIndex)
     _VBUNDLES[t.vbundle].isdual
 end
 
-is_up(t::TensorIndex)   = is_contravariant(t)   # short alias
-is_down(t::TensorIndex) = is_covariant(t)        # short alias
+"""Alias for [`is_contravariant`](@ref). True if `t` is an upper (contravariant) index."""
+is_up(t::TensorIndex)   = is_contravariant(t)
+
+"""Alias for [`is_covariant`](@ref). True if `t` is a lower (covariant) index."""
+is_down(t::TensorIndex) = is_covariant(t)
 
 
 # =========================================

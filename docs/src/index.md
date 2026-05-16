@@ -129,6 +129,7 @@ indices_of_vbundle
 ```@docs
 _MANIFOLDS
 _VBUNDLES
+show_registry
 ```
 
 ---
