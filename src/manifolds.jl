@@ -95,7 +95,7 @@ const _VBUNDLES = Dict{Symbol, VBundleRecord}()
 
 Root type for all manifold singleton types created by `@def_manifold`.
 
-    @def_manifold M 4 [μ, ν, ρ, σ]
+    @def_manifold M 4 [a1, a2, a3, a4]
     # generates: struct M <: Manifold end
 
 Dispatch on the type itself, never on an instance:
@@ -267,7 +267,7 @@ end
 
 function _macro_index_symbols(indices_expr)::Vector{Symbol}
     Meta.isexpr(indices_expr, :vect) ||
-        error("@def_manifold: indices must be a vector literal like [μ, ν, ρ, σ], got $indices_expr")
+        error("@def_manifold: indices must be a vector literal like [a1, a2, a3, a4], got $indices_expr")
     out = Symbol[]
     for a in indices_expr.args
         if a isa Symbol
@@ -294,12 +294,12 @@ bundles, registering all indices to the tangent bundle.
 
 # Example
 ```julia
-@def_manifold M 4 [μ, ν, ρ, σ]
+@def_manifold M 4 [a1, a2, a3, a4]
 is_manifold(M)           # true
 dim_of_manifold(M)       # 4
 tangent_bundle_of(M)     # :TangentM
-up(:μ)                   # TensorIndex(:μ, :TangentM)
-down(:μ)                 # TensorIndex(:μ, :CoTangentM)
+up(:a1)                   # TensorIndex(:a1, :TangentM)
+down(:a1)                 # TensorIndex(:a1, :CoTangentM)
 ```
 """
 macro def_manifold(name, dim, indices)
@@ -446,7 +446,7 @@ end
 
 Return the names of all currently registered manifolds as a vector of `Symbol`s.
 
-    @def_manifold M 4 [μ, ν]
+    @def_manifold M 4 [a1, a2, a3, a4]
     list_manifolds()   # [:M]
 """
 list_manifolds() = collect(keys(_MANIFOLDS))

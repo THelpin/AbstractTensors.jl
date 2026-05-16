@@ -38,16 +38,16 @@ not stored in the struct.
 
 Construction
 ------------
-    up(:μ)    →  TensorIndex(:μ, :TangentM)      # contravariant
-    down(:μ)  →  TensorIndex(:μ, :CoTangentM)    # covariant
+    up(:a1)    →  TensorIndex(:a1, :TangentM)      # contravariant
+    down(:a1)  →  TensorIndex(:a1, :CoTangentM)    # covariant
 
 Direct construction is valid when both fields are known:
 
-    TensorIndex(:μ, :TangentM)
+    TensorIndex(:a1, :TangentM)
 
 Fields
 ------
-- `symbol`  : the index name, e.g. `:μ`
+- `symbol`  : the index name, e.g. `:a1`
 - `vbundle` : the bundle it lives in, e.g. `:TangentM` or `:CoTangentM`
 """
 struct TensorIndex
@@ -65,7 +65,7 @@ end
 
 Maps each registered index symbol to the name of its *home* (tangent) bundle.
 
-    _IDX_REGISTRY[:μ]  →  :TangentM
+    _IDX_REGISTRY[:a1]  →  :TangentM
 
 Every index is registered to its tangent bundle only. The cotangent bundle
 is reached via `dual_bundle` (defined in manifolds.jl). This is the single
@@ -143,7 +143,7 @@ end
 Construct a contravariant (upper) index for `sym`.
 Looks up the home tangent bundle from the registry.
 
-    up(:μ)  →  TensorIndex(:μ, :TangentM)
+    up(:a1)  →  TensorIndex(:a1, :TangentM)
 """
 function up(sym::Symbol)
     vb = index_home_vbundle(sym)   # :TangentM
@@ -156,7 +156,7 @@ end
 Construct a covariant (lower) index for `sym`.
 Looks up the home tangent bundle, then takes its dual (cotangent bundle).
 
-    down(:μ)  →  TensorIndex(:μ, :CoTangentM)
+    down(:a1)  →  TensorIndex(:a1, :CoTangentM)
 
 Requires `dual_bundle` to be defined (manifolds.jl, loaded after this file).
 """
@@ -170,7 +170,7 @@ end
 # 4.  Accessors
 # =========================================
 
-"""Symbol name of the index, e.g. `:μ`."""
+"""Symbol name of the index, e.g. `:a1`."""
 symbol_of(t::TensorIndex)  = t.symbol
 
 """Vbundle name, e.g. `:TangentM` or `:CoTangentM`."""
@@ -284,7 +284,7 @@ Requires that `M` has already been defined with `@def_manifold`.
 
 # Example
 ```julia
-@def_manifold M 4 [μ, ν, ρ, σ]
+@def_manifold M 4 [a1, a2, a3, a4]
 @add_indices M α β        # register two extra indices on TangentM
 index_home_vbundle(:α)  # :TangentM
 up(:α)                  # TensorIndex(:α, :TangentM)
