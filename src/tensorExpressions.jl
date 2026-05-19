@@ -155,13 +155,6 @@ tensor_of(e::TensorExpression)  = e.tensor
 """Return the concrete index list of a `TensorExpression`."""
 indices_of_tensor(e::TensorExpression) = e.indices
 
-"""
-    rank_of(e::TensorExpression) -> Int
-
-Number of slots of the expression. Dispatches alongside `rank_of(::Tensor)`.
-"""
-rank_of(e::TensorExpression) = length(e.indices)
-
 
 # =========================================
 # 5.  Equality and hashing
@@ -381,5 +374,3 @@ end
 
 export TensorExpression
 export tensor_of, indices_of_tensor
-# rank_of: already exported from tensors.jl; the TensorExpression method
-# is added here via multiple dispatch — no re-export needed.

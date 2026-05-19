@@ -9,7 +9,7 @@
 #     (checking manifold membership) and then discarded.
 #   - Symmetries is a Vector{SlotSymmetry} acting on positions 1:n.
 #   - Metric is stored as a Symbol key into _METRICS, or nothing.
-#   - Dot-access provides derived properties (rank, manifold_data).
+#   - Dot-access provides derived properties (rank).
 #
 # Index binding change (from previous version):
 #   Index variables in caller scope are now TensorIndex, not IndexSymbol.
@@ -48,10 +48,9 @@ Provides dot access to all metadata:
     T.print_as       # :T
     T.metric         # :g or nothing
     T.rank           # 2      (derived — length of slots)
-    T.manifold_data  # the Manifold instance (derived — looks up _MANIFOLDS)
 
-Fields
-------
+### Fields
+
 - `manifold`      : name of the base manifold, key into `_MANIFOLDS`
 - `slots`         : vbundle symbol per slot, encoding variance.
                     `:cotangentM` → covariant, `:tangentM` → contravariant.
@@ -85,10 +84,6 @@ end
 function Base.getproperty(t::Tensor, field::Symbol)
     if field === :rank
         return length(getfield(t, :slots))
-    elseif field === :manifold_data
-        m = getfield(t, :manifold)
-        haskey(_MANIFOLDS, m) || error("Tensor references unregistered manifold :$m")
-        return _MANIFOLDS[m]
     else
         return getfield(t, field)
     end
@@ -96,7 +91,7 @@ end
 
 function Base.propertynames(::Tensor, private::Bool=false)
     (:manifold, :slots, :symmetries, :is_traceless, :known_traces, :print_as,
-     :metric, :rank, :manifold_data)
+     :metric, :rank)
 end
 
 
@@ -129,49 +124,6 @@ const _TENSORS = Dict{Symbol, Tensor}()
 Return `true` if `x` is a [`Tensor`](@ref) instance.
 """
 is_tensor(x) = x isa Tensor
-
-"""
-    rank_of(T::Tensor) -> Int
-
-Number of slots of `T`. Equivalent to `T.rank` and `length(T.slots)`.
-"""
-rank_of(T::Tensor) = length(T.slots)
-
-"""
-    manifold_of(T::Tensor) -> Symbol
-
-Name of the base manifold of `T` (key into `_MANIFOLDS`).
-"""
-manifold_of(T::Tensor) = T.manifold
-
-"""
-    slots_of(T::Tensor) -> Vector{Symbol}
-
-Vbundle symbol per slot, e.g. `[:cotangentM, :tangentM]`.
-"""
-slots_of(T::Tensor) = T.slots
-
-"""
-    symmetries_of(T::Tensor) -> Vector{SlotSymmetry}
-"""
-symmetries_of(T::Tensor) = T.symmetries
-
-"""
-    is_traceless_tensor(T::Tensor) -> Bool
-
-`true` if `T` was declared traceless.
-"""
-is_traceless_tensor(T::Tensor) = T.is_traceless
-
-"""
-    metric_of(T::Tensor) -> Union{Symbol, Nothing}
-
-Return the name of the metric associated with `T`, or `nothing` if no metric
-was assigned at definition time.
-"""
-metric_of(T::Tensor) = T.metric
-
-
 
 
 # =========================================
@@ -270,22 +222,17 @@ end
 Define a new abstract tensor on `manifold` and bind it to `name` in the
 caller's scope.
 
-Slot syntax
------------
-- `-idx` : covariant (lower) slot — index lives in `cotangentM`
--  `idx` : contravariant (upper) slot — index lives in `tangentM`
+### Slot syntax
 
-The index symbols (`idx`) must already be registered to `manifold` via
-`@def_manifold` or `@add_indices`. They are used only for validation;
+-  `+idx (or idx)` : contravariant (upper) slot — index lives in `tangentM` or in the `vector bundle` specified in the input of `@def_vbundle` macro.
+- `-idx` : covariant (lower) slot — index lives in `cotangentM` or in the `dual vector bundle` specified by `@def_vbundle` macro.
+
+The index symbols (`idx`) must already be registered to `tangentM` via
+`@def_manifold` or to a given vector bundle via `@def_vbundle` or latter with `@add_indices` macro. They are used only for validation;
 the tensor stores vbundle names per slot, not the defining symbols.
 
-Since index variables are now bound as [`TensorIndex`](@ref) in the caller's
-scope, the slot syntax `-a1` triggers `Base.:-(::TensorIndex)` = `flip`,
-and a bare `a1` is already a contravariant `TensorIndex`. This is purely
-syntactic — the macro itself parses the AST signs at expansion time.
+### Keyword arguments (all optional)
 
-Keyword arguments (all optional)
----------------------------------
 - `symmetries`  : a [`SlotSymmetry`](@ref) or `Vector{SlotSymmetry}` describing
                   the slot permutation symmetry group(s). Defaults to
                   `[no_symmetry(rank)]`.
@@ -301,7 +248,8 @@ Keyword arguments (all optional)
 Binds `name` to a [`Tensor`](@ref) instance in the caller's scope and
 registers it in [`_TENSORS`](@ref).
 
-# Examples
+### Examples
+
 ```julia
 @def_manifold M 4 [a1, a2, a3, a4]
 @def_metric g[-a1, -a2] M
@@ -559,17 +507,17 @@ function Base.show(io::IO, ::MIME"text/html", T::Tensor)
     <div style="border:1px solid #ddd;padding:10px;border-radius:5px;background:#f9f9f9;">
         <h4 style="margin-top:0;">Tensor: <span style="color:#0a7c40;">$(T.print_as)</span></h4>
         <table style="width:100%;border-collapse:collapse;">
-            <tr><td style="font-weight:bold;width:120px;">Manifold</td>
+            <tr><td style="font-weight:bold;width:120px;text-align:left;">Manifold</td>
                 <td><code>$(T.manifold)</code></td></tr>
-            <tr><td style="font-weight:bold;">Rank</td>
+            <tr><td style="font-weight:bold;text-align:left;">Rank</td>
                 <td>$(T.rank)</td></tr>
-            <tr><td style="font-weight:bold;">Slots</td>
+            <tr><td style="font-weight:bold;text-align:left;">Slots</td>
                 <td>$(join(slot_html, " &nbsp; "))</td></tr>
-            <tr><td style="font-weight:bold;">Symmetries</td>
+            <tr><td style="font-weight:bold;text-align:left;">Symmetries</td>
                 <td>$(sym_strs)</td></tr>
-            <tr><td style="font-weight:bold;">Traceless</td>
+            <tr><td style="font-weight:bold;text-align:left;">Traceless</td>
                 <td>$(T.is_traceless)</td></tr>
-            <tr><td style="font-weight:bold;">Metric</td>
+            <tr><td style="font-weight:bold;text-align:left;">Metric</td>
                 <td>$(metric_str)</td></tr>
         </table>
     </div>
@@ -583,7 +531,6 @@ end
 
 export Tensor
 export _TENSORS, _METRICS
-export is_tensor, rank_of, manifold_of, slots_of, symmetries_of
-export is_traceless_tensor, metric_of
+export is_tensor
 export list_tensors, tensor_info
 export @def_tensor, @undef_tensor

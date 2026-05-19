@@ -421,21 +421,10 @@ end
         @test TS_T.metric      == :ts_g
         @test TS_T.slots == [:cotangentTS_M, :cotangentTS_M]
 
-        @test rank_of(TS_T)        == 2
-        @test manifold_of(TS_T)    == :TS_M
-        @test slots_of(TS_T)       == [:cotangentTS_M, :cotangentTS_M]
-        @test metric_of(TS_T)      == :ts_g
-        @test !is_traceless_tensor(TS_T)
-
-        # derived manifold_data
-        @test TS_T.manifold_data isa Manifold
-        @test TS_T.manifold_data.name == :TS_M
-
         # propertynames includes :metric and :rank
         pn = propertynames(TS_T)
-        @test :metric       in pn
-        @test :rank         in pn
-        @test :manifold_data in pn
+        @test :metric in pn
+        @test :rank   in pn
     end
 
 
@@ -484,7 +473,7 @@ end
 
         # traceless flag
         @def_tensor TSYM_W[-tsym_a,-tsym_b,-tsym_c,-tsym_d] TSYM_M symmetries=[riemann_symmetry()] traceless=true
-        @test is_traceless_tensor(TSYM_W)
+        @test TSYM_W.is_traceless
 
         # symmetry degree mismatch → error
         @test_throws ErrorException @eval begin

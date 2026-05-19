@@ -183,11 +183,6 @@ Tensor
 @def_tensor
 @undef_tensor
 is_tensor
-rank_of
-manifold_of
-slots_of
-symmetries_of
-is_traceless_tensor
 list_tensors
 tensor_info
 ```
