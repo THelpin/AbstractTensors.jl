@@ -4,8 +4,7 @@
 # A TensorExpression is a Tensor (schema) applied to a specific list of
 # TensorIndex objects. It is the REPL/notebook object you interact with:
 #
-#   F[down(a1), down(a2)]   — explicit construction
-#   F[-a1, -a2]             — sugar: -a1 / +a1 on IndexSymbol (indices.jl)
+#   F[-a1, -a2]             — sugar: -a1 / +a1 on TensorIndex (indices.jl)
 #
 # The struct is lazy and inert: no contraction, no symmetry reduction
 # happens at construction time. Algebra (*,+) and contraction are
@@ -28,9 +27,8 @@ expression.
 
 Constructed via `getindex` on a [`Tensor`](@ref):
 
-    F[down(a1), down(a2)]   # explicit TensorIndex arguments
-    F[-a1, -a2]             # sugar: -a1 → down(a1) via Base.:- on IndexSymbol (indices.jl)
-    F[a1, -a2]              # mixed: +a1 or bare a1 → up; -a2 → down
+    F[-a1, -a2]             # covariant slots via unary - on bound indices
+    F[a1, -a2]              # mixed: bare a1 or +a1; -a2 for covariant slot
 
 The expression is **lazy and inert**: no contraction, canonicalization, or
 symmetry reduction is performed at construction time.
@@ -50,30 +48,14 @@ end
 # 2.  Internal argument parser
 # =========================================
 
-# Accepts the forms a slot argument can take at runtime:
-#   TensorIndex  — used directly (includes -a1 / +a1 after indices.jl unary ops)
-#   IndexSymbol  — treated as contravariant (up)
-#   Symbol       — treated as contravariant (up); must be registered
-# Unary -/+ on IndexSymbol are defined in indices.jl (down/up).
+# Accepts TensorIndex only (includes -a1 / +a1 after indices.jl unary ops).
 function _parse_index_arg(arg)::TensorIndex
-    if arg isa TensorIndex
-        return arg
-    elseif arg isa IndexSymbol
-        return up(arg)
-    elseif arg isa Symbol
-        is_index_registered(arg) ||
-            error(
-                "TensorExpression: index :$arg is not registered. " *
-                "Call @def_manifold or @add_indices first."
-            )
-        return up(arg)
-    else
-        error(
-            "TensorExpression: cannot interpret slot argument $(repr(arg)) " *
-            "of type $(typeof(arg)). " *
-            "Use down(a1), up(a1), or the -a1 / a1 sugar."
-        )
-    end
+    arg isa TensorIndex && return arg
+    error(
+        "TensorExpression: slot argument must be a TensorIndex " *
+        "(e.g. a1 or -a1 from @def_manifold), got $(repr(arg)) " *
+        "of type $(typeof(arg))."
+    )
 end
 
 
@@ -86,11 +68,8 @@ end
 
 Construct a [`TensorExpression`](@ref) by applying `T` to the given indices.
 
-Accepted argument types per slot:
-- [`TensorIndex`](@ref)     — used directly
-- [`IndexSymbol`](@ref)     — treated as contravariant (`up(i)`)
-- `-`[`IndexSymbol`](@ref)  — covariant (`down(i)`); unary `-` on `IndexSymbol` is in `indices.jl`
-- `+`[`IndexSymbol`](@ref)  — contravariant (`up(i)`); unary `+` on `IndexSymbol` is in `indices.jl`
+Each slot must be a [`TensorIndex`](@ref) (typically a variable bound by
+`@def_manifold` / `@add_indices`, optionally with unary `-` or `+`).
 
 Validates at construction time:
 1. **Arity** — `length(idxs) == T.rank`
@@ -103,8 +82,7 @@ Validates at construction time:
 @def_metric g[-a1, -a2] M
 @def_tensor F[-a1, -a2] M symmetries=[antisymmetric(2)]
 
-F[-a1, -a2]              # covariant sugar
-F[down(a1), down(a2)]    # explicit, identical
+F[-a1, -a2]              # covariant slots
 F[a1, -a2]               # mixed (only if F has a contravariant first slot)
 F[-a1, -a2, -a1]         # error: rank mismatch
 ```
@@ -152,13 +130,12 @@ function Base.getindex(T::Tensor, idxs...)
         # Variance: the index's actual vbundle must equal the slot's vbundle.
         slot_vb = T.slots[i]
         if idx.vbundle != slot_vb
-            # Build a helpful "did you mean up/down?" hint.
-            cotb   = _MANIFOLDS[T.manifold].cotangent_bundle
-            hint   = slot_vb == cotb ? "down($(idx.symbol))" :
-                                       "up($(idx.symbol))"
+            cotb = _MANIFOLDS[T.manifold].cotangent_bundle
+            sym  = idx.symbol
+            hint = slot_vb == cotb ? "-$sym" : "$sym"
             error(
                 "TensorExpression: slot $i of $(T.print_as) expects " *
-                "bundle :$slot_vb but index :$(idx.symbol) lives in " *
+                "bundle :$slot_vb but index :$sym lives in " *
                 ":$(idx.vbundle). Use $hint."
             )
         end
@@ -236,7 +213,7 @@ end
 Group consecutive indices of the same variance into runs.
 Each element is `(is_covariant, [sym1, sym2, ...])`.
 
-    [down(a1), down(a2), up(b1)]  →  [(true,[:a1,:a2]), (false,[:b1])]
+    [-a1, -a2, a3]  →  [(true,[:a1,:a2]), (false,[:a3])]
 """
 function _group_index_runs(indices::Vector{TensorIndex})
     isempty(indices) && return Tuple{Bool,Vector{Symbol}}[]

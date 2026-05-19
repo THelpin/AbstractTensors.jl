@@ -5,12 +5,14 @@
 #   - Manifolds and vector bundles are plain struct instances.
 #     @def_manifold binds M, tangentM, cotangentM as variables
 #     in the caller's scope, all queryable via dot access:
-#       M.dim, M.tangent_bundle, TangentM.isdual, etc.
+#       M.dim, M.tangent_bundle, tangentM.isdual, etc.
 #   - All metadata lives in module-level registries.
 #   - Indices are registered via register_index! from indices.jl.
 #   - VBundle.isdual is the single authoritative source for
 #     bundle variance (false = tangent, true = cotangent/dual).
 #     No naming conventions are relied upon for this.
+#   - Each index symbol is bound in the caller's scope as a
+#     contravariant TensorIndex (no IndexSymbol type).
 #
 # xTensor analogs:
 #   $Manifolds              → _MANIFOLDS
@@ -30,17 +32,16 @@
 """
     Manifold
 
-
 Struct representing a registered differentiable manifold. Instances are created by
 [`@def_manifold`](@ref) and bound to a variable in the caller's scope.
 
 Provides dot access to all metadata:
 
     M.name              # :M
-    M.dim               # 4 
+    M.dim               # 4
     M.tangent_bundle    # :tangentM
     M.cotangent_bundle  # :cotangentM
-    M.vbundles          # [:TangentM, :CoTangentM]
+    M.vbundles          # [:tangentM, :cotangentM]
 
 ### Fields
 
@@ -61,8 +62,8 @@ end
 """
     VBundle
 
-Struct representing a registered vector bundle. Instances are created by [`@def_manifold`](@ref) 
-for the tangent and cotangent bundles, 
+Struct representing a registered vector bundle. Instances are created by [`@def_manifold`](@ref)
+for the tangent and cotangent bundles,
 and bound to variables in the caller's scope (e.g. `tangentM`, `cotangentM`).
 
 Provides dot access to all metadata:
@@ -71,16 +72,17 @@ Provides dot access to all metadata:
     tangentM.manifold  # :M
     tangentM.dim       # 4
     tangentM.isdual    # false
-    tangentM.indices   # [TensorIndex(:a1, :TangentM), ...]
+    tangentM.dual      # :cotangentM
+    tangentM.indices   # [TensorIndex(:a1, :tangentM), ...]
 
 ### Fields
 
-- `name`     : bundle name, e.g. `:TangentM`
+- `name`     : bundle name, e.g. `:tangentM`
 - `manifold` : base manifold name, e.g. `:M`
 - `dim`      : fibre dimension
-- `isdual`   : false = tangent (standard) bundle, true = cotangent (dual) bundle.
-               This is the single authoritative source of bundle variance —
-               no naming convention is relied upon.
+- `isdual`   : false = contravariant (upper) slots, true = covariant (lower) slots.
+               Authoritative for index variance via [`is_up`](@ref) / [`is_down`](@ref).
+- `dual`     : name of the paired dual bundle, e.g. `:cotangentM` or `:dualE`
 - `indices`  : the `TensorIndex` objects living in this bundle
 """
 struct VBundle
@@ -88,6 +90,7 @@ struct VBundle
     manifold::Symbol
     dim::Dim
     isdual::Bool
+    dual::Symbol
     indices::Vector{TensorIndex}
 end
 
@@ -104,34 +107,31 @@ const _MANIFOLDS = Dict{Symbol, Manifold}()
 
 """
 Registry of all defined vector bundles.
-Key: bundle name as Symbol (e.g. `:TangentM`).
+Key: bundle name as Symbol (e.g. `:tangentM`).
 """
 const _VBUNDLES = Dict{Symbol, VBundle}()
 
 
 # =========================================
-# 3. dual_vbundle — defined here because indices.jl calls it
-#    but _VBUNDLES lives here.
+# 3.  Bundle pairing
 # =========================================
 
 """
-    dual_vbundle(vb::Symbol) -> Symbol
+    is_dual_vbundles(vb1::Symbol, vb2::Symbol) -> Bool
 
 !!! warning "Internal"
     This function is intended for internal use by the AbstractTensors.jl
     package. It is not part of the public API and may change without notice.
 
-Return the dual bundle of `vb`. Reads `isdual` from `_VBUNDLES` —
-no naming convention is assumed.
+True if `vb2` is the dual partner of `vb1`, i.e. `_VBUNDLES[vb1].dual == vb2`.
 
-    dual_vbundle(:tangentM)    →  :cotangentM
-    dual_vbundle(:cotangentM)  →  :tangentM
+    is_dual_vbundles(:tangentM, :cotangentM)  →  true
+    is_dual_vbundles(:E, :dualE)              →  true
+    is_dual_vbundles(:E, :cotangentM)         →  false
 """
-function dual_vbundle(vb::Symbol)
-    haskey(_VBUNDLES, vb) || error("VBundle :$vb is not registered.")
-    r = _VBUNDLES[vb]
-    m = _MANIFOLDS[r.manifold]
-    r.isdual ? m.tangent_bundle : m.cotangent_bundle
+function is_dual_vbundles(vb1::Symbol, vb2::Symbol)
+    haskey(_VBUNDLES, vb1) || return false
+    _VBUNDLES[vb1].dual == vb2
 end
 
 
@@ -142,12 +142,25 @@ end
 # Internal predicates (not exported)
 is_manifold(x) = x isa Manifold
 is_vbundle(x) = x isa VBundle
-is_tangent_bundle(x::VBundle) = !x.isdual
-is_tangent_bundle(vb::Symbol) = haskey(_VBUNDLES, vb) && !_VBUNDLES[vb].isdual
+is_tangent_bundle(v::VBundle) =
+    haskey(_MANIFOLDS, v.manifold) && v.name == _MANIFOLDS[v.manifold].tangent_bundle
+function is_tangent_bundle(vb::Symbol)
+    haskey(_VBUNDLES, vb) || return false
+    m = _MANIFOLDS[_VBUNDLES[vb].manifold]
+    vb == m.tangent_bundle
+end
+
 is_tangent_bundle(::Any)      = false
-is_cotangent_bundle(x::VBundle) = x.isdual
-is_cotangent_bundle(vb::Symbol) = haskey(_VBUNDLES, vb) && _VBUNDLES[vb].isdual
-is_cotangent_bundle(::Any)      = false
+
+is_cotangent_bundle(v::VBundle) =
+    haskey(_MANIFOLDS, v.manifold) && v.name == _MANIFOLDS[v.manifold].cotangent_bundle
+function is_cotangent_bundle(vb::Symbol)
+    haskey(_VBUNDLES, vb) || return false
+    m = _MANIFOLDS[_VBUNDLES[vb].manifold]
+    vb == m.cotangent_bundle
+end
+
+endis_cotangent_bundle(::Any)      = false
 
 
 # =========================================
@@ -184,9 +197,14 @@ bundles. Bind the following variables in the caller's scope:
 - `tangent<name>`   → a [`VBundle`](@ref) instance (`isdual = false`)
 - `cotangent<name>` → a [`VBundle`](@ref) instance (`isdual = true`)
 
-Each index symbol is also bound to an [`IndexSymbol`](@ref) in the caller's scope.
+Each index symbol is bound in the caller's scope as a contravariant
+[`TensorIndex`](@ref), so unary `-` can be used directly:
 
-`dim` can be a concrete integer or a symbolic name for parametric manifolds:
+    a1          # TensorIndex(:a1, :tangentM)   — contravariant
+    -a1         # TensorIndex(:a1, :cotangentM) — covariant
+    [a1, -a2]   # Vector{TensorIndex}           — uniform type
+
+`dim` can be a concrete integer or a symbolic name for parametric manifolds.
 
 Register `name` in `_MANIFOLDS`, the tangent and cotangent bundles in
 `_VBUNDLES`, and all index symbols in `_INDICES`.
@@ -194,21 +212,18 @@ Register `name` in `_MANIFOLDS`, the tangent and cotangent bundles in
 #### Examples
 ```julia
 @def_manifold M 4 [a1, a2, a3, a4]   # concrete dimension
-@def_manifold M d [b1, b2, b3, b4]  # parametric dimension
+@def_manifold M d [b1, b2, b3, b4]   # parametric dimension
 ```
 """
 macro def_manifold(name, dim, indices)
     name isa Symbol ||
         error("@def_manifold: first argument must be a symbol, got $name")
-    # If dim is a plain Symbol at expansion time, treat it as a symbolic
-    # dimension directly — do not try to evaluate it as a variable.
-    # If it is an integer literal or an expression, evaluate it normally.
     dim_expr = if dim isa Integer
-        dim                  # integer literal — use directly
+        dim
     elseif dim isa Symbol
-        QuoteNode(dim)       # bare symbol like d or n — lift to :d, :n
+        QuoteNode(dim)
     else
-        esc(dim)             # expression — evaluate in caller's scope
+        esc(dim)
     end
     tangent_name     = Symbol("tangent",   name)
     cotangent_name   = Symbol("cotangent", name)
@@ -244,24 +259,22 @@ macro def_manifold(name, dim, indices)
         end
 
         # ── Step 1: Register indices into _INDICES first ──────────────────
-        # Must happen before constructing TensorIndex objects, because
-        # up() / down() call index_home_vbundle() which reads _INDICES.
         for _idx in _indices
             register_index!(_idx, $(tangent_symbol))
         end
 
         # ── Step 2: Build TensorIndex vectors ────────────────────────────
-        # Built directly with flat constructor — dual_vbundle is not yet
-        # available because _VBUNDLES is not yet populated.
         local _t_indices = [TensorIndex(s, $(tangent_symbol))   for s in _indices]
         local _c_indices = [TensorIndex(s, $(cotangent_symbol)) for s in _indices]
 
         # ── Step 3: Register bundles ─────────────────────────────────────
         _VBUNDLES[$(tangent_symbol)] = VBundle(
-            $(tangent_symbol), $(name_symbol), _dim, false, _t_indices
+            $(tangent_symbol), $(name_symbol), _dim, false,
+            $(cotangent_symbol), _t_indices
         )
         _VBUNDLES[$(cotangent_symbol)] = VBundle(
-            $(cotangent_symbol), $(name_symbol), _dim, true, _c_indices
+            $(cotangent_symbol), $(name_symbol), _dim, true,
+            $(tangent_symbol), _c_indices
         )
 
         # ── Step 4: Register manifold ────────────────────────────────────
@@ -272,15 +285,15 @@ macro def_manifold(name, dim, indices)
         )
 
         # ── Step 5: Bind Manifold and VBundle instances in caller's scope ─
-        $(esc(name))          = _MANIFOLDS[$(name_symbol)]
+        $(esc(name))           = _MANIFOLDS[$(name_symbol)]
         $(esc(tangent_name))   = _VBUNDLES[$(tangent_symbol)]
         $(esc(cotangent_name)) = _VBUNDLES[$(cotangent_symbol)]
 
-        # ── Step 6: Bind IndexSymbol variables in caller's scope ─────────
-        # Each index symbol gets a variable bound to an IndexSymbol object,
-        # enabling property-style access (a1.vbundle) and direct use with
-        # up() / down() without the colon prefix.
-        $([ :($(esc(s)) = IndexSymbol($(QuoteNode(s)))) for s in index_symbols ]...)
+        # ── Step 6: Bind TensorIndex variables in caller's scope ──────────
+        # Each index symbol gets a variable bound to a contravariant TensorIndex.
+        # Unary - on TensorIndex calls flip, giving the covariant form.
+        # This ensures [a1, -a2] produces Vector{TensorIndex}, not Vector{Any}.
+        $([ :($(esc(s)) = TensorIndex($(QuoteNode(s)), $(tangent_symbol))) for s in index_symbols ]...)
 
         println("Defined manifold $($(name_symbol)) of dimension $(_dim) " *
                 "with tangent bundle $($(tangent_symbol)) " *
@@ -311,18 +324,14 @@ After this call:
 Julia module-level bindings cannot be deleted at runtime. The variable
 `name` in the caller's scope will still exist and still hold the old
 `Manifold` struct after this call. Attempting to access any field on
-that stale reference will raise an immediate error:
+that stale reference will raise an immediate warning:
 
 ```julia
 @def_manifold M 4 [a1, a2, a3, a4]
 @undef_manifold M
 
-M.dim   # → Warining: Manifold :M has been undefined. Variable still holds a stale reference.
+M.dim   # → Warning: Manifold :M has been undefined. Variable still holds a stale reference.
 ```
-
-This is enforced by `Base.getproperty(::Manifold, ...)`, which checks
-registry membership before every field access. The same guard is applied
-to `VBundle` via `Base.getproperty(::VBundle, ...)`.
 
 To fully clear the name from your session, restart the Julia kernel.
 """
@@ -355,7 +364,6 @@ macro undef_manifold(name)
 
         delete!(_MANIFOLDS, $(name_sym))
 
-        # Now safe — we use the captured Symbols, not the stale struct.
         @warn "Manifold $($(name_sym)) has been undefined. " *
               "The variable $($(name_sym)) still holds a stale reference," *
               " accessing it will error. Restart the kernel to fully clear the binding."
@@ -378,17 +386,7 @@ Before returning the requested field, checks that `m` is still registered
 in `_MANIFOLDS`. If `@undef_manifold` has been called, the variable in the
 caller's scope may still hold the old struct (Julia cannot delete bindings
 at runtime). This guard turns that silent stale reference into an immediate,
-descriptive error:
-
-```julia
-@def_manifold M 4 [a1, a2, a3, a4]
-@undef_manifold M
-M.dim   # → ERROR: Manifold :M has been undefined. Variable still holds a stale reference.
-```
-
-!!! note
-    Direct `getfield` calls bypass this guard. All user-facing access
-    should go through dot syntax or the accessor functions.
+descriptive warning.
 """
 function Base.getproperty(m::Manifold, field::Symbol)
     if !haskey(_MANIFOLDS, getfield(m, :name))
@@ -405,17 +403,8 @@ end
 Field access for `VBundle` instances.
 
 Same stale-reference guard as for `Manifold`: checks that `v` is still
-registered in `_VBUNDLES` before returning the requested field. Stale
-`VBundle` variables (e.g. `TangentM` after `@undef_manifold M`) raise an
-immediate error rather than silently returning outdated data.
-
-```julia
-@def_manifold M 4 [a1, a2, a3, a4]
-@undef_manifold M
-tangentM.isdual   # → ERROR: VBundle :tangentM has been undefined. Variable still holds a stale reference.
-```
+registered in `_VBUNDLES` before returning the requested field.
 """
-
 function Base.getproperty(v::VBundle, field::Symbol)
     if !haskey(_VBUNDLES, getfield(v, :name))
         @warn "VBundle :$(getfield(v, :name)) has been undefined. " *
@@ -426,19 +415,18 @@ function Base.getproperty(v::VBundle, field::Symbol)
 end
 
 # =========================================
-# 8. Utility / introspection
+# 9. Utility / introspection
 # =========================================
 
 """
     list_manifolds() -> Vector{Symbol}
 
-!!! warning "Internal"
-    Return the names of all currently registered manifolds.
+Return the names of all currently registered manifolds.
 """
 list_manifolds() = collect(keys(_MANIFOLDS))
 
 # =========================================
-# 9. show methods
+# 10. show methods
 # =========================================
 
 function Base.show(io::IO, M::Manifold)
@@ -463,7 +451,8 @@ end
 
 function Base.show(io::IO, v::VBundle)
     variance_label = v.isdual ? "cotangent" : "tangent"
-    print(io, "VBundle($(v.name), $(variance_label), manifold=$(v.manifold), dim=$(v.dim))")
+    print(io, "VBundle($(v.name), $(variance_label), dual=$(v.dual), " *
+              "manifold=$(v.manifold), dim=$(v.dim))")
 end
 
 function Base.show(io::IO, ::MIME"text/html", v::VBundle)
@@ -504,5 +493,5 @@ end
 # =========================================
 
 export Manifold, VBundle
-export _MANIFOLDS, _VBUNDLES 
+export _MANIFOLDS, _VBUNDLES
 export @def_manifold, @undef_manifold

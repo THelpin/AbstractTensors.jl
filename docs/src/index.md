@@ -35,14 +35,15 @@ Whether an index is contravariant or covariant is determined entirely by
 which bundle it lives in. [`VBundle.isdual`](@ref VBundle) is the single
 authoritative source; no naming convention is relied upon.
 
-**Index symbols.** Each index is bound to an [`IndexSymbol`](@ref) in the
-caller's scope by `@def_manifold` and `@add_indices`, enabling dot access
-and direct use with `up` / `down`:
+**Index symbols.** Each index is bound to a contravariant [`TensorIndex`](@ref)
+in the caller's scope by `@def_manifold` and `@add_indices`, enabling dot
+access and bracket sugar via unary `-` / `+`:
 
     a1.symbol    # :a1
     a1.vbundle   # :tangentM
-    up(a1)       # TensorIndex(:a1, :tangentM)
-    down(a1)     # TensorIndex(:a1, :cotangentM)
+    a1           # TensorIndex(:a1, :tangentM)   — contravariant
+    -a1          # TensorIndex(:a1, :cotangentM) — covariant (unary -)
+    flip(a1)     # toggle variance
 
 **Slot structure.** Each tensor stores its slot structure as a
 `Vector{Symbol}` of vbundle names — one per slot. The sign prefixes in
@@ -73,9 +74,10 @@ M.tangent_bundle   # :tangentM
 tangentM.isdual    # false
 a1.vbundle         # :tangentM
 
-# 3. Construct contravariant and covariant indices
-up(a1)    # TensorIndex(:a1, :tangentM)    — contravariant
-down(a1)  # TensorIndex(:a1, :cotangentM)  — covariant
+# 3. Contravariant and covariant indices (bound by @def_manifold)
+a1        # TensorIndex(:a1, :tangentM)    — contravariant
+-a1       # TensorIndex(:a1, :cotangentM)  — covariant
+F[-a1, -a2]   # bracket indexing uses TensorIndex values only
 
 # 4. Define tensors with varying slot structures and symmetries
 @def_tensor T[-a1, -a2] M                          # rank-2 covariant, no symmetry
@@ -113,20 +115,10 @@ canonical_rep([b, a], sym)   # ([a, b], Int8(-1)) — T[b,a] = -T[a,b]
 
 ---
 
-## Index symbols
-
-```@docs
-IndexSymbol
-```
-
----
-
 ## Indices
 
 ```@docs
 TensorIndex
-up
-down
 flip(::TensorIndex)
 is_up
 is_down
@@ -227,8 +219,7 @@ validate_indices
 register_index!
 unregister_index!
 index_home_vbundle
-dual_vbundle
-dual_vbundles
+is_dual_vbundles
 list_manifolds
 ```
 

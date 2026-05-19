@@ -1,7 +1,7 @@
 using AbstractTensors
 using AbstractTensors: contractable, register_index!, unregister_index!,
     index_home_vbundle, validate_indices, validate_contraction,
-    dual_vbundle, dual_vbundles, show_registry
+    is_dual_vbundles, show_registry
 using Test
 
 # =========================================
@@ -21,35 +21,16 @@ end
 @testset "AbstractTensors.jl" begin
 
     # ─────────────────────────────────────────────────────────────────
-    @testset "IndexSymbol" begin
-        _clear_all_registries!()
-        @def_manifold IS_M 4 [is_a1, is_a2, is_a3, is_a4]
-
-        @test is_a1 isa IndexSymbol
-        @test is_a1.symbol == :is_a1
-        @test is_a1.vbundle == :tangentIS_M
-
-        # propertynames
-        @test :symbol  in propertynames(is_a1)
-        @test :vbundle in propertynames(is_a1)
-
-        # show does not throw
-        @test (repr(is_a1); true)
-
-        # unregistered symbol
-        bad = IndexSymbol(:not_real)
-        @test !haskey(_INDICES, bad.symbol)
-        @test_throws ErrorException bad.vbundle
-    end
-
-
-    # ─────────────────────────────────────────────────────────────────
     @testset "TensorIndex — construction and predicates" begin
         _clear_all_registries!()
         @def_manifold TI_M 4 [ti_a, ti_b, ti_c, ti_d]
 
-        ua = up(ti_a)
-        da = down(ti_a)
+        # @def_manifold binds contravariant TensorIndex variables
+        @test ti_a isa TensorIndex
+        @test [ti_a, -ti_b] isa Vector{TensorIndex}
+
+        ua = ti_a
+        da = -ti_a
 
         @test ua isa TensorIndex
         @test ua.symbol  == :ti_a
@@ -76,9 +57,9 @@ end
         @test ua != da
         @test hash(ua) == hash(TensorIndex(:ti_a, :tangentTI_M))
 
-        # up / down on plain Symbol
-        @test up(:ti_b) == TensorIndex(:ti_b, :tangentTI_M)
-        @test down(:ti_b) == TensorIndex(:ti_b, :cotangentTI_M)
+        # symbol-named sibling index
+        @test ti_b == TensorIndex(:ti_b, :tangentTI_M)
+        @test -ti_b == TensorIndex(:ti_b, :cotangentTI_M)
 
         # show does not throw
         @test (repr(ua); true)
@@ -86,25 +67,25 @@ end
 
 
     # ─────────────────────────────────────────────────────────────────
-    @testset "TensorIndex — predicates dual_vbundles / contractable" begin
+    @testset "TensorIndex — is_dual_vbundles / contractable" begin
         _clear_all_registries!()
         @def_manifold TI2_M 4 [ti2_a, ti2_b, ti2_c, ti2_d]
 
-        ua = up(ti2_a)
-        da = down(ti2_a)
-        ub = up(ti2_b)
+        ua = ti2_a
+        da = -ti2_a
+        ub = ti2_b
 
         @test ua.symbol == da.symbol
         @test ua.symbol != ub.symbol
 
-        @test dual_vbundles(:tangentTI2_M, :cotangentTI2_M)
-        @test dual_vbundles(:cotangentTI2_M, :tangentTI2_M)
-        @test !dual_vbundles(:tangentTI2_M, :tangentTI2_M)
+        @test is_dual_vbundles(:tangentTI2_M, :cotangentTI2_M)
+        @test is_dual_vbundles(:cotangentTI2_M, :tangentTI2_M)
+        @test !is_dual_vbundles(:tangentTI2_M, :tangentTI2_M)
 
         @test contractable(ua, da)
         @test contractable(da, ua)
         @test !contractable(ua, ub)
-        @test !contractable(ua, up(ti2_b))
+        @test !contractable(ua, ti2_b)
     end
 
 
@@ -139,11 +120,28 @@ end
         @test haskey(_INDICES, :ai_a5)
         @test haskey(_INDICES, :ai_a6)
         @test ai_a5.vbundle == :tangentAI_M
-        @test up(ai_a5) == TensorIndex(:ai_a5, :tangentAI_M)
-        @test down(ai_a6) == TensorIndex(:ai_a6, :cotangentAI_M)
+        @test ai_a5 == TensorIndex(:ai_a5, :tangentAI_M)
+        @test -ai_a6 == TensorIndex(:ai_a6, :cotangentAI_M)
 
         # adding to unregistered manifold → error
         @test_throws ErrorException @eval @add_indices FAKE_M ai_z1
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "@def_vbundle — dual field and flip" begin
+        _clear_all_registries!()
+        @def_manifold VB_M 4 [vb_a1, vb_a2, vb_a3, vb_a4]
+        @def_vbundle VB_E VB_M 3 [VB_A1, VB_A2, VB_A3]
+
+        @test VB_E.dual == :dualVB_E
+        @test dualVB_E.dual == :VB_E
+        @test VB_A1.vbundle == :VB_E
+        @test (-VB_A1).vbundle == :dualVB_E
+        @test is_dual_vbundles(:VB_E, :dualVB_E)
+        @test is_dual_vbundles(:dualVB_E, :VB_E)
+        @test !is_dual_vbundles(:VB_E, :cotangentVB_M)
+        @test [VB_A1, -VB_A2, -VB_A3] isa Vector{TensorIndex}
     end
 
 
@@ -180,12 +178,11 @@ end
         @test :tangentMAN_M in MAN_M.vbundles
         @test tb.indices == _VBUNDLES[:tangentMAN_M].indices
 
-        # dual_vbundle (internal)
-        @test dual_vbundle(:tangentMAN_M)   == :cotangentMAN_M
-        @test dual_vbundle(:cotangentMAN_M) == :tangentMAN_M
-        @test_throws ErrorException dual_vbundle(:not_a_bundle)
-        @test down(mn_a1).vbundle == :cotangentMAN_M
-        @test flip(up(mn_a1)).vbundle == :cotangentMAN_M
+        # VBundle.dual field
+        @test tangentMAN_M.dual   == :cotangentMAN_M
+        @test cotangentMAN_M.dual == :tangentMAN_M
+        @test (-mn_a1).vbundle == :cotangentMAN_M
+        @test flip(mn_a1).vbundle == :cotangentMAN_M
 
         # show does not throw
         @test (repr(MAN_M); true)
@@ -242,7 +239,7 @@ end
         _clear_all_registries!()
         @def_manifold VC_M 4 [vc_a, vc_b, vc_c, vc_d]
 
-        ua = up(vc_a); da = down(vc_a); ub = up(vc_b)
+        ua = vc_a; da = -vc_a; ub = vc_b
 
         @test (validate_contraction(ua, da); true)
         @test_throws ErrorException validate_contraction(ua, ub)   # different symbol

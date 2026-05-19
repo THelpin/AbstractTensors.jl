@@ -11,6 +11,12 @@
 #   - Metric is stored as a Symbol key into _METRICS, or nothing.
 #   - Dot-access provides derived properties (rank, manifold_data).
 #
+# Index binding change (from previous version):
+#   Index variables in caller scope are now TensorIndex, not IndexSymbol.
+#   The macro syntax T[-a1, a2] still works unchanged: unary - on a
+#   TensorIndex calls flip, giving the covariant form. The parsing logic
+#   in _parse_tensor_head operates on Symbols internally and is unaffected.
+#
 # xTensor analogs:
 #   DefTensor[T[-i1,-i2], M]  →  @def_tensor T[-a1, -a2] M
 #   $Tensors                  →  _TENSORS
@@ -174,6 +180,7 @@ metric_of(T::Tensor) = T.metric
 
 # Parse T[-a1, a2, -a3] → (:T, [(:a1,true), (:a2,false), (:a3,true)])
 # Called at macro expansion time; errors early with clear messages.
+# Operates on plain Symbols internally — unaffected by the IndexSymbol removal.
 function _parse_tensor_head(expr)
     Meta.isexpr(expr, :ref) ||
         error("@def_tensor: first argument must be T[...] syntax, got: $expr")
@@ -185,12 +192,12 @@ function _parse_tensor_head(expr)
     slot_specs = Tuple{Symbol, Bool}[]
     for arg in expr.args[2:end]
         if arg isa Symbol
-            push!(slot_specs, (arg, false))   # contravariant: up index
+            push!(slot_specs, (arg, false))   # contravariant slot
         elseif Meta.isexpr(arg, :call) &&
                length(arg.args) == 2   &&
                arg.args[1] == :-       &&
                arg.args[2] isa Symbol
-            push!(slot_specs, (arg.args[2], true))   # covariant: down index
+            push!(slot_specs, (arg.args[2], true))   # covariant slot
         else
             error(
                 "@def_tensor: each slot must be a plain symbol (contravariant) " *
@@ -233,7 +240,6 @@ function _parse_tensor_kwargs(kwargs, default_print_as::Symbol)
                 error("@def_tensor: print_as must be a quoted symbol, e.g. print_as=:Riemann")
             end
         elseif k === :metric
-            # Accept bare symbol g or quoted :g — always embed as the name Symbol.
             if v isa Symbol
                 metric_expr = QuoteNode(v)        # metric=g  → :g
             elseif v isa QuoteNode && v.value isa Symbol
@@ -273,12 +279,16 @@ The index symbols (`idx`) must already be registered to `manifold` via
 `@def_manifold` or `@add_indices`. They are used only for validation;
 the tensor stores vbundle names per slot, not the defining symbols.
 
+Since index variables are now bound as [`TensorIndex`](@ref) in the caller's
+scope, the slot syntax `-a1` triggers `Base.:-(::TensorIndex)` = `flip`,
+and a bare `a1` is already a contravariant `TensorIndex`. This is purely
+syntactic — the macro itself parses the AST signs at expansion time.
+
 Keyword arguments (all optional)
 ---------------------------------
 - `symmetries`  : a [`SlotSymmetry`](@ref) or `Vector{SlotSymmetry}` describing
                   the slot permutation symmetry group(s). Defaults to
-                  `[no_symmetry(rank)]`. Use `symmetric(2)`, `antisymmetric(2)`,
-                  `symmetric_on(4, [1,2])`, `riemann_symmetry()`, etc.
+                  `[no_symmetry(rank)]`.
 - `traceless`   : `true` if any self-contraction of this tensor is zero
                   (e.g. Weyl tensor). Defaults to `false`.
 - `print_as`    : display name. Defaults to `name`. Example: `print_as=:R`.
@@ -323,12 +333,8 @@ macro def_tensor(tensor_expr, manifold_expr, kwargs...)
     idx_syms_expr  = :([$(map(QuoteNode, index_syms)...)])
     cov_flags_expr = :([$(is_cov_flags...)])
 
-    # Symmetries: default to [no_symmetry(n)]; normalize to Vector{SlotSymmetry}
-    # at runtime.
     sym_expr = isnothing(symmetries_expr) ? :([no_symmetry($n)]) : esc(symmetries_expr)
 
-    # Metric: nothing means "auto-resolve at runtime from _METRICS".
-    # metric_expr is always a QuoteNode(:sym) when provided (set in _parse_tensor_kwargs).
     metric_provided = !isnothing(metric_expr)
     metric_val_expr = metric_provided ? metric_expr : nothing
 
@@ -385,8 +391,6 @@ macro def_tensor(tensor_expr, manifold_expr, kwargs...)
         # ── Resolve metric ─────────────────────────────────────────────
         local _metric_sym::Union{Symbol, Nothing}
         if $(metric_provided)
-            # Explicit metric= supplied: _given_sym is always a Symbol (enforced
-            # in _parse_tensor_kwargs by wrapping bare symbols in QuoteNode).
             local _given_sym::Symbol = $(metric_val_expr)
             haskey(_METRICS, _given_sym) ||
                 error(
@@ -401,7 +405,6 @@ macro def_tensor(tensor_expr, manifold_expr, kwargs...)
                 )
             _metric_sym = _given_sym
         else
-            # Auto-resolve from _METRICS.
             local _known = metrics_of_manifold($(manifold_sym))
             if isempty(_known)
                 @warn "No metric is defined on manifold $($(manifold_sym)). " *

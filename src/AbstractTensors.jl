@@ -1,7 +1,7 @@
 module AbstractTensors
 
 # Load order is strict:
-#   indices.jl    — IndexSymbol, TensorIndex, up/down
+#   indices.jl    — TensorIndex, flip, is_up/is_down
 #   manifolds.jl  — Manifold, VBundle, @def_manifold (calls register_index!)
 #   permutations.jl — SignedPerm, SlotSymmetry, canonical_rep
 #                     (also defines isless for TensorIndex, needs _VBUNDLES)

@@ -1,84 +1,28 @@
 # =========================================
 # indices.jl — AbstractTensor.jl
 #
-# — IndexSymbol
-#   A named index symbol bound to a specific manifold's tangent bundle.
-#   Created in the caller's scope by @def_manifold and @add_indices.
-#   Provides property-style access to registry metadata and can be
-#   passed directly to up() and down().
-#
 # — TensorIndex
 #   A flat (symbol, vbundle) struct representing an index in a tensor
 #   expression. The vbundle encodes the variance completely:
-#     :TangentM   → contravariant (upper) index
-#     :CoTangentM → covariant (lower) index
+#     :tangentM   → contravariant (upper) index
+#     :cotangentM → covariant (lower) index
 #
-#   up / down are input-syntax helpers only. When the user writes T{a, -b},
-#   the parser calls up(a) or down(b) — where a and b are IndexSymbol objects
-#   or plain Symbols — which resolves the correct vbundle from the registry
-#   and constructs a TensorIndex. After construction, no position field is
-#   needed or stored.
+#   When the user writes T[-a1, a2] or F[-a1, -a2], unary - on a TensorIndex
+#   calls flip; a bare bound TensorIndex is already contravariant.
+#   Variance is encoded only by vbundle — no separate position field.
+#
+# Design change (from previous version):
+#   IndexSymbol has been removed. @def_manifold and @def_vbundle now bind
+#   TensorIndex(:sym, :tangentX) directly in the caller's scope.
+#   Unary - and + are defined on TensorIndex (flip / identity).
+#   This eliminates the Vector{Any} heterogeneity and reduces the
+#   conceptual surface area for users.
 #
 # xTensor analogs:
-#   abstract index `a`        →  IndexSymbol(:a) bound to name `a` in scope
-#   upper slot  `a` in T[a]   →  up(a)    = TensorIndex(:a, :TangentM)
-#   lower slot `-a` in T[-a]  →  down(a)  = TensorIndex(:a, :CoTangentM)
+#   abstract index `a`        →  TensorIndex(:a, :tangentM) bound to name `a`
+#   upper slot  `a` in T[a]   →  a itself  (already contravariant)
+#   lower slot `-a` in T[-a]  →  -a  = flip(a) = TensorIndex(:a, :cotangentM)
 # =========================================
-
-
-# =========================================
-# 0.  IndexSymbol
-# =========================================
- 
-"""
-    IndexSymbol
- 
-Struct representing an index symbol bound to a specific manifold's tangent bundle,
-created by [`@def_manifold`](@ref) for the tangent bundle and by [`@def_vbundle`](@ref) 
-for other vector bundles. Index symbols can also be added later on with 
-[`@add_indices`](@ref) macro. 
- 
-Provides property-style access to registry metadata:
- 
-    a1.symbol    # :a1
-    a1.vbundle   # :tangentM
- 
-Pass directly to [`up`](@ref) and [`down`](@ref), or use `-` / `+` to construct a 
-[`TensorIndex`](@ref).
- 
-    up(a1)    # TensorIndex(:a1, :TangentM)
-    down(a1)  # TensorIndex(:a1, :CoTangentM)
-    -a1       # same as down(a1)  — for `T[-a1, ...]` sugar
-    +a1       # same as up(a1)
- 
-### Fields
-
-- `symbol` : the index name as a `Symbol`, e.g. `:a1`
-"""
-struct IndexSymbol
-    symbol::Symbol
-end
- 
-function Base.getproperty(i::IndexSymbol, field::Symbol)
-    if field == :vbundle
-        return index_home_vbundle(i.symbol)
-    else
-        return getfield(i, field)   # fallback for actual struct fields (:symbol)
-    end
-end
- 
-function Base.propertynames(::IndexSymbol, private::Bool=false)
-    (:symbol, :vbundle)
-end
- 
-function Base.show(io::IO, i::IndexSymbol)
-    if haskey(_INDICES, i.symbol)
-        vb = index_home_vbundle(i.symbol)
-        print(io, "$(i.symbol) ∈ $vb")
-    else
-        print(io, "$(i.symbol) (unregistered)")
-    end
-end
 
 
 # =========================================
@@ -88,31 +32,30 @@ end
 """
     TensorIndex
 
-An index symbol placed in a specific vector bundle, fully encoding its
+An index symbol associated to a specific vector bundle, fully encoding its
 variance through the bundle it lives in:
 
-- vbundle = `:TangentM`   → contravariant (upper) index
-- vbundle = `:CoTangentM` → covariant (lower) index
+- vbundle = `:tangentM`   → contravariant (upper) index
+- vbundle = `:cotangentM` → covariant (lower) index
 
-[`up`](@ref) and [`down`](@ref) are the standard constructors. They accept
-either a plain `Symbol` or an [`IndexSymbol`](@ref) and resolve the correct
-vbundle from the registry at construction time.
+After `@def_manifold M 4 [a1, a2, a3, a4]`, each index symbol is bound in
+the caller's scope as a contravariant `TensorIndex`:
 
-Construction
-------------
-    up(:a1)    →  TensorIndex(:a1, :TangentM)      # contravariant, Symbol form
-    down(:a1)  →  TensorIndex(:a1, :CoTangentM)    # covariant,     Symbol form
-    up(a1)     →  TensorIndex(:a1, :TangentM)      # contravariant, IndexSymbol form
-    down(a1)   →  TensorIndex(:a1, :CoTangentM)    # covariant,     IndexSymbol form
+     a1          # TensorIndex(:a1, :tangentM)   — contravariant
+    -a1          # TensorIndex(:a1, :cotangentM) — covariant (unary -)
+    +a1          # TensorIndex(:a1, :tangentM)   — contravariant (unary +, identity)
+    flip(a1)     # Change vbundle of index to its dual
 
-Direct construction is valid when both fields are known:
+Bracket indexing uses bound `TensorIndex` values only: `F[-a1, -a2]`.
 
-    TensorIndex(:a1, :TangentM)
+Direct construction when both fields are known:
 
-Fields
-------
+    TensorIndex(:a1, :tangentM)
+
+### Fields
+
 - `symbol`  : the index name, e.g. `:a1`
-- `vbundle` : the bundle it lives in, e.g. `:TangentM` or `:CoTangentM`
+- `vbundle` : the bundle it lives in, e.g. `:tangentM` or `:cotangentM`
 
 Dot access (via `getproperty`) also exposes:
 
@@ -134,12 +77,10 @@ end
 
 Maps each registered index symbol to the name of its *home* (tangent) bundle.
 
-    _INDICES[:a1]  →  :TangentM
+    _INDICES[:a1]  →  :tangentM
 
 Every index is registered to its tangent bundle only. The cotangent bundle
-is reached via `dual_vbundle` (defined in manifolds.jl). This is the single
-source of truth: `up` reads from here to get the tangent bundle, `down`
-calls `dual_vbundle` on that result to get the cotangent bundle.
+is reached via the `dual` field on [`VBundle`](@ref) (manifolds.jl) and [`flip`](@ref).
 
 Populated by `register_index!` (called from `@def_manifold` and `@add_indices`).
 Cleared entry-by-entry by `unregister_index!` (called from `@undef_manifold`).
@@ -200,8 +141,8 @@ unregister_index!(sym::Symbol) = delete!(_INDICES, sym)
 
 True if `sym` is in [`_INDICES`](@ref).
 """
-is_index_registered(sym::Symbol)    = haskey(_INDICES, sym)
-is_index_registered(i::IndexSymbol) = is_index_registered(i.symbol)
+is_index_registered(sym::Symbol)       = haskey(_INDICES, sym)
+is_index_registered(t::TensorIndex)    = is_index_registered(t.symbol)
 
 """
     index_home_vbundle(sym::Symbol) -> Symbol
@@ -217,67 +158,56 @@ function index_home_vbundle(sym::Symbol)
         error("Index :$sym is not registered. Was @def_manifold called?")
     _INDICES[sym]
 end
-index_home_vbundle(i::IndexSymbol) = index_home_vbundle(i.symbol)
+index_home_vbundle(t::TensorIndex) = index_home_vbundle(t.symbol)
 
-
-# ============================================
-# 3.  Constructors  (up / down as syntax layer)
-# ============================================
-
-"""
-    up(sym::Symbol)    -> TensorIndex
-    up(i::IndexSymbol) -> TensorIndex
-
-Construct a contravariant (upper) index.
-Looks up the home tangent bundle from the registry.
-
-    up(:a1)  →  TensorIndex(:a1, :TangentM)
-    up(a1)   →  TensorIndex(:a1, :TangentM)   # a1 an IndexSymbol
-"""
-function up(sym::Symbol)
-    vb = index_home_vbundle(sym)
-    TensorIndex(sym, vb)
-end
-up(i::IndexSymbol) = up(i.symbol)
-
-"""
-    down(sym::Symbol)    -> TensorIndex
-    down(i::IndexSymbol) -> TensorIndex
-
-Construct a covariant (lower) index.
-Looks up the home tangent bundle, then takes its dual (cotangent bundle).
-
-    down(:a1)  →  TensorIndex(:a1, :CoTangentM)
-    down(a1)   →  TensorIndex(:a1, :CoTangentM)   # a1 an IndexSymbol
-
-Requires `dual_vbundle` to be defined (manifolds.jl, loaded after this file).
-"""
-function down(sym::Symbol)
-    vb = index_home_vbundle(sym)
-    TensorIndex(sym, dual_vbundle(vb))
-end
-down(i::IndexSymbol) = down(i.symbol)
-
-
-#  Conversion of IndexSymbol to TensorIndex
-
-"""
-    Base.:-(i::IndexSymbol) -> TensorIndex
-
-Unary minus on an [`IndexSymbol`](@ref): returns `down(i)` (covariant / lower index).
-Enables bracket sugar such as `F[-a1, -a2]` when indexing a [`Tensor`](@ref).
-"""
-Base.:-(i::IndexSymbol) = down(i)
-
-"""
-    Base.:+(i::IndexSymbol) -> TensorIndex
-
-Unary plus on an [`IndexSymbol`](@ref): returns `up(i)` (contravariant / upper index).
-"""
-Base.:+(i::IndexSymbol) = up(i)
 
 # =========================================
-# 4.  Variance predicates
+# 3.  Transformations
+# =========================================
+
+"""
+    flip(t::TensorIndex) -> TensorIndex
+
+Return a new `TensorIndex` with the dual vbundle.
+Contravariant → covariant and vice versa.
+
+Reads `dual` from [`_VBUNDLES`](@ref) (manifolds.jl).
+"""
+function flip(t::TensorIndex)
+    haskey(_VBUNDLES, t.vbundle) ||
+        error("VBundle $(t.vbundle) is not registered.")
+    TensorIndex(t.symbol, _VBUNDLES[t.vbundle].dual)
+end
+
+
+# =========================================
+# 4.  Unary operators on TensorIndex
+#     Enables: -a1  (covariant sugar)  and  +a1  (identity)
+#     Since @def_manifold binds a1 = TensorIndex(:a1, :tangentM),
+#     [a1, -a2] now produces Vector{TensorIndex} uniformly.
+# =========================================
+
+"""
+    Base.:-(t::TensorIndex) -> TensorIndex
+
+Unary minus on a [`TensorIndex`](@ref): returns `flip(t)` (toggles variance).
+Enables bracket sugar such as `F[-a1, -a2]` when indexing a [`Tensor`](@ref).
+
+    -a1   →  TensorIndex(:a1, :cotangentM)   # if a1 is contravariant
+    -a1   →  TensorIndex(:a1, :tangentM)     # if a1 is covariant  (double flip)
+"""
+Base.:-(t::TensorIndex) = flip(t)
+
+"""
+    Base.:+(t::TensorIndex) -> TensorIndex
+
+Unary plus on a [`TensorIndex`](@ref): identity, returns `t` unchanged.
+"""
+Base.:+(t::TensorIndex) = t
+
+
+# =========================================
+# 5.  Variance predicates
 # =========================================
 
 """
@@ -318,7 +248,7 @@ end
 
 
 # =========================================
-# 5.  Predicates
+# 6.  Predicates
 # =========================================
 
 """
@@ -334,22 +264,6 @@ Used to detect repeated indices (Einstein summation candidates).
 same_symbol(a::TensorIndex, b::TensorIndex) = a.symbol == b.symbol
 
 """
-    dual_vbundles(vb1::Symbol, vb2::Symbol) -> Bool
-
-!!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
-    package. It is not part of the public API and may change without notice.
-
-True if `vb1` and `vb2` are the tangent/cotangent pair of the same manifold.
-Reads from `_VBUNDLES` (defined in manifolds.jl).
-"""
-function dual_vbundles(vb1::Symbol, vb2::Symbol)
-    (haskey(_VBUNDLES, vb1) && haskey(_VBUNDLES, vb2)) || return false
-    r1, r2 = _VBUNDLES[vb1], _VBUNDLES[vb2]
-    r1.manifold == r2.manifold && r1.isdual != r2.isdual
-end
-
-"""
     contractable(a::TensorIndex, b::TensorIndex) -> Bool
 
 !!! warning "Internal"
@@ -357,31 +271,16 @@ end
     package. It is not part of the public API and may change without notice.
 
 True if `a` and `b` form a valid Einstein summation pair:
-same symbol, and their vbundles are the tangent/cotangent dual pair
-of the same manifold.
+same symbol, and their vbundles are registered dual partners
+(see [`is_dual_vbundles`](@ref)).
 """
 function contractable(a::TensorIndex, b::TensorIndex)
-    same_symbol(a, b) && dual_vbundles(a.vbundle, b.vbundle)
+    same_symbol(a, b) && is_dual_vbundles(a.vbundle, b.vbundle)
 end
 
 
 # =========================================
-# 6.  Transformations
-# =========================================
-
-"""
-    flip(t::TensorIndex) -> TensorIndex
-
-Return a new `TensorIndex` with the dual vbundle.
-Contravariant → covariant and vice versa.
-
-Requires `dual_vbundle` (manifolds.jl).
-"""
-flip(t::TensorIndex) = TensorIndex(t.symbol, dual_vbundle(t.vbundle))
-
-
-# =========================================
-# 7.  Equality & hashing
+# 8.  Equality & hashing
 # =========================================
 
 Base.:(==)(a::TensorIndex, b::TensorIndex) =
@@ -391,7 +290,7 @@ Base.hash(t::TensorIndex, h::UInt) = hash((t.symbol, t.vbundle), h)
 
 
 # =========================================
-# 8.  Display
+# 9.  Display
 # =========================================
 
 function Base.show(io::IO, t::TensorIndex)
@@ -401,7 +300,7 @@ end
 
 
 # =========================================
-# 9.  @add_indices macro
+# 10.  @add_indices macro
 # =========================================
 
 # Note: there is no @remove_indices macro.
@@ -415,7 +314,7 @@ end
     @add_indices M idx1 idx2 ...
 
 Register extra index symbols to the tangent bundle of manifold `M` and
-bind each to an [`IndexSymbol`](@ref) in the caller's scope.
+bind each to a contravariant [`TensorIndex`](@ref) in the caller's scope.
 
 `@def_manifold` already registers its index list, so `@add_indices` is
 useful for introducing additional indices after manifold definition.
@@ -426,9 +325,8 @@ Requires that `M` has already been defined with `@def_manifold`.
 ```julia
 @def_manifold M 4 [a1, a2, a3, a4]
 @add_indices M a5 a6
-a5.vbundle              # :TangentM
-up(a5)                  # TensorIndex(:a5, :TangentM)
-down(a6)                # TensorIndex(:a6, :CoTangentM)
+a5                  # TensorIndex(:a5, :tangentM)
+-a6                 # TensorIndex(:a6, :cotangentM)
 ```
 """
 macro add_indices(manifold_name, idx_syms...)
@@ -445,7 +343,7 @@ macro add_indices(manifold_name, idx_syms...)
             error("@add_indices: index names must be plain symbols, got $s.")
         quote
             register_index!($(QuoteNode(s)), $(tangent_sym))
-            $(esc(s)) = IndexSymbol($(QuoteNode(s)))
+            $(esc(s)) = TensorIndex($(QuoteNode(s)), $(tangent_sym))
         end
     end
 
@@ -462,7 +360,7 @@ end
 
 
 # =========================================
-# 10.  Validation helpers  (used by tensors.jl)
+# 11.  Validation helpers  (used by tensors.jl)
 # =========================================
 
 """
@@ -509,11 +407,11 @@ function validate_contraction(a::TensorIndex, b::TensorIndex)
             "Cannot contract $(a.symbol) with $(b.symbol): different symbols. " *
             "Contraction requires the same index in dual bundles."
         )
-    dual_vbundles(a.vbundle, b.vbundle) ||
+    is_dual_vbundles(a.vbundle, b.vbundle) ||
         error(
             "Cannot contract $(a.symbol) ($(a.vbundle)) " *
             "with $(b.symbol) ($(b.vbundle)): " *
-            "bundles are not the tangent/cotangent dual pair of the same manifold."
+            "bundles are not dual partners."
         )
 end
 
@@ -522,9 +420,8 @@ end
 # Exports
 # =========================================
 
-export IndexSymbol
 export TensorIndex
-export up, down, flip
+export flip
 export _INDICES
 export is_up, is_down
 export @add_indices

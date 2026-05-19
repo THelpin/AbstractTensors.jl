@@ -30,10 +30,11 @@ caller's scope:
 - `name`       → a [`VBundle`](@ref) instance (`isdual = false`)
 - `dualname`   → a [`VBundle`](@ref) instance (`isdual = true`)
 
-Each index symbol in `[idx1, idx2, ...]` is bound to an [`IndexSymbol`](@ref)
-and registered to `name` (the primal bundle). The dual bundle shares the
-same index symbols — `down(v1)` resolves to `TensorIndex(:v1, :dualname)`
-automatically via `down` / `dual_vbundle` (internal).
+Each index symbol in `[idx1, idx2, ...]` is bound to a contravariant
+[`TensorIndex`](@ref) and registered to `name` (the primal bundle). The dual
+bundle shares the same index symbols — `-A1` resolves to
+`TensorIndex(:A1, :dualname)` via [`flip`](@ref) and the `dual` field on
+[`VBundle`](@ref).
 
 `dim` accepts a concrete integer or a bare symbol for parametric bundles.
 The fibre dimension is independent of the base manifold dimension.
@@ -49,9 +50,8 @@ Registers both bundles in `_VBUNDLES` and appends their names to
 
 E.isdual       # false
 dualE.isdual   # true
-v1.vbundle     # :E
-up(A1)         # TensorIndex(:v1, :E)
-down(A1)       # TensorIndex(:v1, :dualE)
+A1.vbundle     # :E
+-A1            # TensorIndex(:A1, :dualE)
 M.vbundles     # [:tangentM, :cotangentM, :E, :dualE]
 ```
 """
@@ -107,7 +107,6 @@ macro def_vbundle(name, manifold_name, dim, indices)
 
         # ── Step 1: Register indices ──────────────────────────────────────
         # Indices are registered to the primal bundle only.
-        # dual_vbundle() resolves the dual at lookup time.
         for _idx in $(index_symbols)
             register_index!(_idx, $(name_symbol))
         end
@@ -118,10 +117,12 @@ macro def_vbundle(name, manifold_name, dim, indices)
 
         # ── Step 3: Register bundles in _VBUNDLES ────────────────────────
         _VBUNDLES[$(name_symbol)] = VBundle(
-            $(name_symbol), $(manifold_symbol), _dim, false, _p_indices
+            $(name_symbol), $(manifold_symbol), _dim, false,
+            $(dual_symbol), _p_indices
         )
         _VBUNDLES[$(dual_symbol)] = VBundle(
-            $(dual_symbol), $(manifold_symbol), _dim, true, _d_indices
+            $(dual_symbol), $(manifold_symbol), _dim, true,
+            $(name_symbol), _d_indices
         )
 
         # ── Step 4: Append to manifold's vbundles list ───────────────────
@@ -133,8 +134,8 @@ macro def_vbundle(name, manifold_name, dim, indices)
         $(esc(name))      = _VBUNDLES[$(name_symbol)]
         $(esc(dual_name)) = _VBUNDLES[$(dual_symbol)]
 
-        # ── Step 6: Bind IndexSymbol variables in caller's scope ─────────
-        $([ :($(esc(s)) = IndexSymbol($(QuoteNode(s)))) for s in index_symbols ]...)
+        # ── Step 6: Bind TensorIndex variables in caller's scope ─────────
+        $([ :($(esc(s)) = TensorIndex($(QuoteNode(s)), $(name_symbol))) for s in index_symbols ]...)
 
         println("Defined VBundle $($(name_symbol)) (dim=$(_dim)) " *
                 "and dual $($(dual_symbol)) over manifold $($(manifold_symbol))")
