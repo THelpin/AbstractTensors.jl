@@ -176,7 +176,7 @@ end
 tensor_of(e::TensorExpression)  = e.tensor
 
 """Return the concrete index list of a `TensorExpression`."""
-indices_of(e::TensorExpression) = e.indices
+indices_of_tensor(e::TensorExpression) = e.indices
 
 """
     rank_of(e::TensorExpression) -> Int
@@ -403,6 +403,6 @@ end
 # =========================================
 
 export TensorExpression
-export tensor_of, indices_of
+export tensor_of, indices_of_tensor
 # rank_of: already exported from tensors.jl; the TensorExpression method
 # is added here via multiple dispatch — no re-export needed.

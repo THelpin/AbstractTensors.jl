@@ -448,13 +448,13 @@ end
 
 function Base.show(io::IO, ::MIME"text/html", M::Manifold)
     print(io, """
-    <div style="border:1px solid #ddd;padding:10px;border-radius:5px;background:#f9f9f9;">
-        <h4 style="margin-top:0;">Manifold: <span style="color:#d63384;">$(M.name)</span></h4>
+    <div style="border:1px solid #ddd;padding:10px;border-radius:5px;background:#f4faff;">
+        <h4 style="margin-top:0;">Manifold: <span style="color:#0d6efd;">$(M.name)</span></h4>
         <table style="width:100%;border-collapse:collapse;">
-            <tr><td style="font-weight:bold;width:150px;">Dimension</td><td>$(M.dim)</td></tr>
-            <tr><td style="font-weight:bold;">Tangent Bundle</td><td><code>$(M.tangent_bundle)</code></td></tr>
-            <tr><td style="font-weight:bold;">Cotangent Bundle</td><td><code>$(M.cotangent_bundle)</code></td></tr>
-            <tr><td style="font-weight:bold;">All VBundles</td>
+            <tr><td style="font-weight:bold;width:150px;text-align:left;">Dimension</td><td>$(M.dim)</td></tr>
+            <tr><td style="font-weight:bold;text-align:left;">Tangent Bundle</td><td><code>$(M.tangent_bundle)</code></td></tr>
+            <tr><td style="font-weight:bold;text-align:left;">Cotangent Bundle</td><td><code>$(M.cotangent_bundle)</code></td></tr>
+            <tr><td style="font-weight:bold;text-align:left;">All VBundles</td>
                 <td>$(join(map(x -> "<code>$x</code>", M.vbundles), ", "))</td></tr>
         </table>
     </div>
