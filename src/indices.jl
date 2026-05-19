@@ -33,24 +33,26 @@
 """
     IndexSymbol
  
-A named index symbol bound to a specific manifold's tangent bundle,
-created by [`@def_manifold`](@ref) and [`@add_indices`](@ref) in the
-caller's scope.
+Struct representing an index symbol bound to a specific manifold's tangent bundle,
+created by [`@def_manifold`](@ref) for the tangent bundle and by [`@def_vbundle`](@ref) 
+for other vector bundles. Index symbols can also be added later on with 
+[`@add_indices`](@ref) macro. 
  
 Provides property-style access to registry metadata:
  
     a1.symbol    # :a1
-    a1.vbundle   # :TangentM
+    a1.vbundle   # :tangentM
  
-Pass directly to [`up`](@ref) and [`down`](@ref), or use unary `-` / `+`:
+Pass directly to [`up`](@ref) and [`down`](@ref), or use `-` / `+` to construct a 
+[`TensorIndex`](@ref).
  
     up(a1)    # TensorIndex(:a1, :TangentM)
     down(a1)  # TensorIndex(:a1, :CoTangentM)
     -a1       # same as down(a1)  — for `T[-a1, ...]` sugar
     +a1       # same as up(a1)
  
-Fields
-------
+### Fields
+
 - `symbol` : the index name as a `Symbol`, e.g. `:a1`
 """
 struct IndexSymbol
@@ -78,21 +80,6 @@ function Base.show(io::IO, i::IndexSymbol)
     end
 end
 
-
-"""
-    Base.:-(i::IndexSymbol) -> TensorIndex
-
-Unary minus on an [`IndexSymbol`](@ref): returns `down(i)` (covariant / lower index).
-Enables bracket sugar such as `F[-a1, -a2]` when indexing a [`Tensor`](@ref).
-"""
-Base.:-(i::IndexSymbol) = down(i)
-
-"""
-    Base.:+(i::IndexSymbol) -> TensorIndex
-
-Unary plus on an [`IndexSymbol`](@ref): returns `up(i)` (contravariant / upper index).
-"""
-Base.:+(i::IndexSymbol) = up(i)
 
 # =========================================
 # 1.  TensorIndex
@@ -233,9 +220,9 @@ end
 index_home_vbundle(i::IndexSymbol) = index_home_vbundle(i.symbol)
 
 
-# =========================================
+# ============================================
 # 3.  Constructors  (up / down as syntax layer)
-# =========================================
+# ============================================
 
 """
     up(sym::Symbol)    -> TensorIndex
@@ -271,6 +258,23 @@ function down(sym::Symbol)
 end
 down(i::IndexSymbol) = down(i.symbol)
 
+
+#  Conversion of IndexSymbol to TensorIndex
+
+"""
+    Base.:-(i::IndexSymbol) -> TensorIndex
+
+Unary minus on an [`IndexSymbol`](@ref): returns `down(i)` (covariant / lower index).
+Enables bracket sugar such as `F[-a1, -a2]` when indexing a [`Tensor`](@ref).
+"""
+Base.:-(i::IndexSymbol) = down(i)
+
+"""
+    Base.:+(i::IndexSymbol) -> TensorIndex
+
+Unary plus on an [`IndexSymbol`](@ref): returns `up(i)` (contravariant / upper index).
+"""
+Base.:+(i::IndexSymbol) = up(i)
 
 # =========================================
 # 4.  Variance predicates
