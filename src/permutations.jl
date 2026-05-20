@@ -403,15 +403,18 @@ end
 
 
 # =========================================
-# 7.  TensorIndex ordering  (used by canonical_rep)
+# 7.  AbstractIndex ordering  (used by canonical_rep)
 # =========================================
 
-# Total order on TensorIndex for lexicographic comparison of index lists.
-# Defined here because canonical_rep operates on Vector{TensorIndex}.
-# Ordering: compare (symbol string, vbundle string) lexicographically.
-# Pure — no registry lookups required.
-Base.isless(a::TensorIndex, b::TensorIndex) =
-    (string(a.symbol), string(a.vbundle)) < (string(b.symbol), string(b.vbundle))
+# Total order on AbstractIndex for lexicographic comparison of index lists.
+# CoordinateIndex sorts before BasisIndex; then compare (symbol, vbundle).
+function _index_sort_key(idx::AbstractIndex)
+    kind = idx isa CoordinateIndex ? 0 : 1
+    (kind, string(idx.symbol), string(idx.vbundle))
+end
+
+Base.isless(a::AbstractIndex, b::AbstractIndex) =
+    _index_sort_key(a) < _index_sort_key(b)
 
 
 # =========================================
@@ -432,12 +435,12 @@ satisfies `apply(g, indices) = canonical`, then
     T[indices...] = g.sign * T[canonical...]
 
 Any element type `T` with `isless` defined is supported.  For
-[`TensorIndex`](@ref), `isless` is defined in this file.
+[`AbstractIndex`](@ref), `isless` is defined in this file.
 
 # Example
 ```julia
 sym  = antisymmetric(2)
-a, b = TensorIndex(:a, :TangentM), TensorIndex(:b, :TangentM)
+a, b = CoordinateIndex(:a, :TangentM), CoordinateIndex(:b, :TangentM)
 canonical_rep([b, a], sym)   # ([a, b], Int8(-1))
 # i.e. T[b, a] = -T[a, b]
 ```

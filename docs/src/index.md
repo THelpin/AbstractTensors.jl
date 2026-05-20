@@ -16,7 +16,7 @@ non-metric-compatible) connections and symplectic structures.
 
 **Registries.** Every manifold, vector bundle, index
 symbol, metric, and tensor is stored in module-level dictionaries (`_MANIFOLDS`,
-`_VBUNDLES`, `_INDICES`, `_TENSORS`, `_METRICS`). These are populated by
+`_VBUNDLES`, `_COORDINATE_INDICES`, `_BASIS_INDICES`, `_TENSORS`, `_METRICS`). These are populated by
 the `@def_*` macros and cleaned up by the corresponding `@undef_*` macros.
 
 **Instance-based objects.** [`Manifold`](@ref), [`VBundle`](@ref), and
@@ -30,19 +30,26 @@ queryable via dot access:
     T.rank             # 2
     T.symmetry         # SlotSymmetry(n=2, order=2, ngens=1)
 
-**Tensor indices.** A [`TensorIndex`](@ref) is a `(symbol, vbundle)` pair.
+**Tensor indices.** An [`AbstractIndex`](@ref) is a `(symbol, vbundle)` pair.
+There are two concrete types:
+
+- [`CoordinateIndex`](@ref) — chart / coordinate labels on tangent and cotangent bundles
+- [`BasisIndex`](@ref) — fibre basis labels on tangent/cotangent or custom vector bundles
+
 Whether an index is contravariant or covariant is determined entirely by
 which bundle it lives in. [`VBundle.isdual`](@ref VBundle) is the single
 authoritative source; no naming convention is relied upon.
 
-**Index symbols.** Each index is bound to a contravariant [`TensorIndex`](@ref)
-in the caller's scope by `@def_manifold` and `@add_indices`, enabling dot
-access and bracket sugar via unary `-` / `+`:
+**Index symbols.** `@def_manifold` binds coordinate symbols as contravariant
+[`CoordinateIndex`](@ref) values and basis symbols as contravariant
+[`BasisIndex`](@ref) values. `@add_indices` adds coordinate indices only.
+Bracket sugar uses unary `-` / `+`:
 
     a1.symbol    # :a1
     a1.vbundle   # :tangentM
-    a1           # TensorIndex(:a1, :tangentM)   — contravariant
-    -a1          # TensorIndex(:a1, :cotangentM) — covariant (unary -)
+    a1           # CoordinateIndex(:a1, :tangentM)   — contravariant
+    -a1          # CoordinateIndex(:a1, :cotangentM) — covariant (unary -)
+    A1           # BasisIndex(:A1, :tangentM)       — contravariant basis label
     flip(a1)     # toggle variance
 
 **Slot structure.** Each tensor stores its slot structure as a
@@ -65,19 +72,20 @@ construction time via BFS — exact and fast for all physical tensor ranks.
 ```julia
 using AbstractTensors
 
-# 1. Define a 4-dimensional manifold with index symbols
-@def_manifold M 4 [a1, a2, a3, a4]
+# 1. Define a 4-dimensional manifold with coordinate and basis index symbols
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 
 # 2. Query manifold and bundle metadata
 M.dim              # 4
 M.tangent_bundle   # :tangentM
 tangentM.isdual    # false
 a1.vbundle         # :tangentM
+tangentM.basis_indices   # [BasisIndex(:A1, :tangentM), ...]
 
 # 3. Contravariant and covariant indices (bound by @def_manifold)
-a1        # TensorIndex(:a1, :tangentM)    — contravariant
--a1       # TensorIndex(:a1, :cotangentM)  — covariant
-F[-a1, -a2]   # bracket indexing uses TensorIndex values only
+a1        # CoordinateIndex(:a1, :tangentM)    — contravariant
+-a1       # CoordinateIndex(:a1, :cotangentM)  — covariant
+F[-a1, -a2]   # bracket indexing uses AbstractIndex values only
 
 # 4. Define tensors with varying slot structures and symmetries
 @def_tensor T[-a1, -a2] M                          # rank-2 covariant, no symmetry
@@ -102,10 +110,10 @@ tensor_info(R)
 
 # 6. Canonical form of an index list under a symmetry
 sym  = antisymmetric(2)
-a, b = TensorIndex(:a1, :tangentM), TensorIndex(:a2, :tangentM)
+a, b = CoordinateIndex(:a1, :tangentM), CoordinateIndex(:a2, :tangentM)
 canonical_rep([b, a], sym)   # ([a, b], Int8(-1)) — T[b,a] = -T[a,b]
 
-# 7. Add extra indices after definition
+# 7. Add extra coordinate indices after definition
 @add_indices M a5 a6
 
 # 8. Remove objects from the registries
@@ -118,8 +126,10 @@ canonical_rep([b, a], sym)   # ([a, b], Int8(-1)) — T[b,a] = -T[a,b]
 ## Indices
 
 ```@docs
-TensorIndex
-flip(::TensorIndex)
+AbstractIndex
+CoordinateIndex
+BasisIndex
+flip(::AbstractIndex)
 is_up
 is_down
 @add_indices
@@ -205,7 +215,8 @@ tensor_info
 ```@docs
 _MANIFOLDS
 _VBUNDLES
-_INDICES
+_COORDINATE_INDICES
+_BASIS_INDICES
 _TENSORS
 _METRICS
 show_registry
@@ -222,7 +233,8 @@ public API. They are documented here for contributors.
 contractable
 validate_contraction
 validate_indices
-register_index!
+register_coordinate_index!
+register_basis_index!
 unregister_index!
 index_home_vbundle
 is_dual_vbundles

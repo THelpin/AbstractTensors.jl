@@ -1,238 +1,258 @@
 # =========================================
-# indices.jl — AbstractTensor.jl
+# indices.jl — AbstractTensors.jl
 #
-# — TensorIndex
-#   A flat (symbol, vbundle) struct representing an index in a tensor
-#   expression. The vbundle encodes the variance completely:
-#     :tangentM   → contravariant (upper) index
-#     :cotangentM → covariant (lower) index
+# Two concrete index types share the AbstractIndex supertype:
 #
-#   When the user writes T[-a1, a2] or F[-a1, -a2], unary - on a TensorIndex
-#   calls flip; a bare bound TensorIndex is already contravariant.
-#   Variance is encoded only by vbundle — no separate position field.
+#   CoordinateIndex  — labels coordinate-chart slots (∂/dx basis)
+#                      registered by @def_manifold (first list) and @add_indices
+#   BasisIndex       — labels ordered fibre-basis elements (e/θ or any VBundle)
+#                      registered by @def_manifold (second list) and @def_vbundle
 #
-# Design change (from previous version):
-#   IndexSymbol has been removed. @def_manifold and @def_vbundle now bind
-#   TensorIndex(:sym, :tangentX) directly in the caller's scope.
-#   Unary - and + are defined on TensorIndex (flip / identity).
-#   This eliminates the Vector{Any} heterogeneity and reduces the
-#   conceptual surface area for users.
+# Variance is encoded entirely by vbundle:
+#     :tangentM   → contravariant (upper)
+#     :cotangentM → covariant (lower)
 #
-# xTensor analogs:
-#   abstract index `a`        →  TensorIndex(:a, :tangentM) bound to name `a`
-#   upper slot  `a` in T[a]   →  a itself  (already contravariant)
-#   lower slot `-a` in T[-a]  →  -a  = flip(a) = TensorIndex(:a, :cotangentM)
+# Unary - on an index calls flip; bare bound index is contravariant.
 # =========================================
 
 
 # =========================================
-# 1.  TensorIndex
+# 1.  AbstractIndex and concrete types
 # =========================================
 
 """
-    TensorIndex
+    AbstractIndex
 
-An index symbol associated to a specific vector bundle, fully encoding its
-variance through the bundle it lives in:
+Supertype for index objects used in tensor expressions and basis elements.
 
-- vbundle = `:tangentM`   → contravariant (upper) index
-- vbundle = `:cotangentM` → covariant (lower) index
+Concrete subtypes:
+- [`CoordinateIndex`](@ref) — coordinate-chart index (∂/dx)
+- [`BasisIndex`](@ref)      — fibre-basis index (e/θ or any VBundle basis)
+"""
+abstract type AbstractIndex end
 
-After `@def_manifold M 4 [a1, a2, a3, a4]`, each index symbol is bound in
-the caller's scope as a contravariant `TensorIndex`:
+"""
+    CoordinateIndex
 
-     a1          # TensorIndex(:a1, :tangentM)   — contravariant
-    -a1          # TensorIndex(:a1, :cotangentM) — covariant (unary -)
-    +a1          # TensorIndex(:a1, :tangentM)   — contravariant (unary +, identity)
-    flip(a1)     # Change vbundle of index to its dual
+An index symbol for the coordinate chart of a vector bundle.
 
-Bracket indexing uses bound `TensorIndex` values only: `F[-a1, -a2]`.
+After `@def_manifold M 4 [a1,a2,a3,a4] [A1,A2,A3,A4]`, each symbol in the
+first list is bound as a contravariant `CoordinateIndex`:
 
-Direct construction when both fields are known:
-
-    TensorIndex(:a1, :tangentM)
+     a1          # CoordinateIndex(:a1, :tangentM)   — contravariant
+    -a1          # CoordinateIndex(:a1, :cotangentM) — covariant (unary -)
 
 ### Fields
 
 - `symbol`  : the index name, e.g. `:a1`
 - `vbundle` : the bundle it lives in, e.g. `:tangentM` or `:cotangentM`
-
-Dot access (via `getproperty`) also exposes:
-
-    idx.is_up    # upper / contravariant
-    idx.is_down  # lower / covariant
 """
-struct TensorIndex
+struct CoordinateIndex <: AbstractIndex
+    symbol::Symbol
+    vbundle::Symbol
+end
+
+"""
+    BasisIndex
+
+An index symbol labelling an element of an ordered fibre basis.
+
+After `@def_manifold M 4 [a1,a2,a3,a4] [A1,A2,A3,A4]`, each symbol in the
+second list is bound as a contravariant `BasisIndex`:
+
+     A1          # BasisIndex(:A1, :tangentM)   — contravariant
+    -A1          # BasisIndex(:A1, :cotangentM) — covariant (unary -)
+
+Also used by `@def_vbundle` for indices of any custom vector bundle.
+
+### Fields
+
+- `symbol`  : the index name, e.g. `:A1` or `:v1`
+- `vbundle` : the home (primal) bundle, e.g. `:tangentM` or `:E`
+"""
+struct BasisIndex <: AbstractIndex
     symbol::Symbol
     vbundle::Symbol
 end
 
 
 # =========================================
-# 2.  Registry
+# 2.  Registries
 # =========================================
 
 """
-    _INDICES :: Dict{Symbol, Symbol}
+    _COORDINATE_INDICES :: Dict{Symbol, Symbol}
 
-Maps each registered index symbol to the name of its *home* (tangent) bundle.
+Maps each coordinate index symbol to its home (primal) vbundle.
 
-    _INDICES[:a1]  →  :tangentM
+    _COORDINATE_INDICES[:a1] → :tangentM
 
-Every index is registered to its tangent bundle only. The cotangent bundle
-is reached via the `dual` field on [`VBundle`](@ref) (manifolds.jl) and [`flip`](@ref).
-
-Populated by `register_index!` (called from `@def_manifold` and `@add_indices`).
-Cleared entry-by-entry by `unregister_index!` (called from `@undef_manifold`).
-
-Do not mutate directly — use the API below.
+Populated by `@def_manifold` (first index list) and `@add_indices`.
 """
-const _INDICES = Dict{Symbol, Symbol}()   # symbol → home vbundle (tangent)
+const _COORDINATE_INDICES = Dict{Symbol, Symbol}()
 
 """
-    register_index!(sym::Symbol, vbundle::Symbol)
+    _BASIS_INDICES :: Dict{Symbol, Symbol}
 
-!!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
-    package. It is not part of the public API and may change without notice.
+Maps each basis index symbol to its home (primal) vbundle.
 
-Register `sym` as belonging to `vbundle` (always the tangent bundle).
+    _BASIS_INDICES[:A1] → :tangentM
+    _BASIS_INDICES[:v1] → :E
 
-- Idempotent: re-registering to the *same* vbundle is a no-op.
-- Errors if `sym` is already registered to a *different* vbundle.
-  An index belongs to exactly one home bundle.
-
-Called by `@def_manifold` and `@add_indices`.
+Populated by `@def_manifold` (second index list) and `@def_vbundle`.
 """
-function register_index!(sym::Symbol, vbundle::Symbol)
-    if haskey(_INDICES, sym)
-        existing = _INDICES[sym]
-        existing == vbundle && return            # idempotent
+const _BASIS_INDICES = Dict{Symbol, Symbol}()
+
+
+function _register_index!(dict::Dict{Symbol,Symbol}, sym::Symbol, vbundle::Symbol, kind::Symbol)
+    if haskey(dict, sym)
+        existing = dict[sym]
+        existing == vbundle && return
         error(
-            "Index :$sym is already registered to vbundle $existing. " *
+            "$(kind) index :$sym is already registered to vbundle $existing. " *
             "Cannot re-register to $vbundle. " *
-            "Each index belongs to exactly one home bundle. " *
-            "Call @undef_manifold on the original manifold first."
+            "Call @undef_manifold or @undef_vbundle on the original bundle first."
         )
     end
-    _INDICES[sym] = vbundle
+    # Also guard against cross-registry collision
+    other = kind === :coordinate ? _BASIS_INDICES : _COORDINATE_INDICES
+    haskey(other, sym) &&
+        error(
+            "Index :$sym is already registered as a $(kind === :coordinate ? "basis" : "coordinate") index. " *
+            "Symbol names must be unique across both registries."
+        )
+    dict[sym] = vbundle
 end
+
+"""
+    register_coordinate_index!(sym::Symbol, vbundle::Symbol)
+
+Register `sym` as a coordinate index belonging to primal vbundle `vbundle`.
+"""
+register_coordinate_index!(sym::Symbol, vbundle::Symbol) =
+    _register_index!(_COORDINATE_INDICES, sym, vbundle, :coordinate)
+
+"""
+    register_basis_index!(sym::Symbol, vbundle::Symbol)
+
+Register `sym` as a basis index belonging to primal vbundle `vbundle`.
+"""
+register_basis_index!(sym::Symbol, vbundle::Symbol) =
+    _register_index!(_BASIS_INDICES, sym, vbundle, :basis)
+
+unregister_coordinate_index!(sym::Symbol) = delete!(_COORDINATE_INDICES, sym)
+unregister_basis_index!(sym::Symbol)       = delete!(_BASIS_INDICES, sym)
 
 """
     unregister_index!(sym::Symbol)
 
-!!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
-    package. It is not part of the public API and may change without notice.
-
-Remove `sym` from the registry. Silent if `sym` was not registered.
-Called by `@undef_manifold`.
+Remove `sym` from whichever registry contains it. Silent if not registered.
 """
-unregister_index!(sym::Symbol) = delete!(_INDICES, sym)
+function unregister_index!(sym::Symbol)
+    delete!(_COORDINATE_INDICES, sym)
+    delete!(_BASIS_INDICES, sym)
+    nothing
+end
 
 # ── Registry accessors ────────────────────────────────────────────────────────
 
-"""
-    is_index_registered(sym::Symbol) -> Bool
+is_coordinate_index(sym::Symbol) = haskey(_COORDINATE_INDICES, sym)
+is_basis_index(sym::Symbol)       = haskey(_BASIS_INDICES, sym)
 
-!!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
-    package. It is not part of the public API and may change without notice.
-
-True if `sym` is in [`_INDICES`](@ref).
 """
-is_index_registered(sym::Symbol)       = haskey(_INDICES, sym)
-is_index_registered(t::TensorIndex)    = is_index_registered(t.symbol)
+    index_kind(sym::Symbol) -> Symbol
+
+Return `:coordinate` or `:basis` for a registered symbol. Errors if unknown.
+"""
+function index_kind(sym::Symbol)
+    is_coordinate_index(sym) && return :coordinate
+    is_basis_index(sym)       && return :basis
+    error("Index :$sym is not registered.")
+end
+
+is_index_registered(sym::Symbol) =
+    is_coordinate_index(sym) || is_basis_index(sym)
+
+is_index_registered(t::AbstractIndex) = is_index_registered(t.symbol)
 
 """
     index_home_vbundle(sym::Symbol) -> Symbol
 
-!!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
-    package. It is not part of the public API and may change without notice.
-
-Return the home (tangent) vbundle of `sym`. Errors if not registered.
+Return the home (primal) vbundle of `sym`. Errors if not registered.
 """
 function index_home_vbundle(sym::Symbol)
-    haskey(_INDICES, sym) ||
-        error("Index :$sym is not registered. Was @def_manifold called?")
-    _INDICES[sym]
+    is_coordinate_index(sym) && return _COORDINATE_INDICES[sym]
+    is_basis_index(sym)       && return _BASIS_INDICES[sym]
+    error("Index :$sym is not registered. Was @def_manifold called?")
 end
-index_home_vbundle(t::TensorIndex) = index_home_vbundle(t.symbol)
+
+index_home_vbundle(t::AbstractIndex) = index_home_vbundle(t.symbol)
+
+"""
+    basis_indices_for_vbundle(vb::Symbol) -> Vector{BasisIndex}
+
+Return all [`BasisIndex`](@ref) objects registered with home vbundle `vb`.
+"""
+function basis_indices_for_vbundle(vb::Symbol)
+    syms = sort([s for (s, home) in _BASIS_INDICES if home == vb])
+    [BasisIndex(s, vb) for s in syms]
+end
+
+"""
+    up(sym::Symbol) -> AbstractIndex
+
+Return the contravariant (upper) form of registered symbol `sym`.
+"""
+function up(sym::Symbol)
+    home = index_home_vbundle(sym)
+    is_coordinate_index(sym) && return CoordinateIndex(sym, home)
+    return BasisIndex(sym, home)
+end
 
 
 # =========================================
 # 3.  Transformations
 # =========================================
 
-"""
-    flip(t::TensorIndex) -> TensorIndex
-
-Return a new `TensorIndex` with the dual vbundle.
-Contravariant → covariant and vice versa.
-
-Reads `dual` from [`_VBUNDLES`](@ref) (manifolds.jl).
-"""
-function flip(t::TensorIndex)
+function _flip_index(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) ||
         error("VBundle $(t.vbundle) is not registered.")
-    TensorIndex(t.symbol, _VBUNDLES[t.vbundle].dual)
+    dual_vb = _VBUNDLES[t.vbundle].dual
+    t isa CoordinateIndex && return CoordinateIndex(t.symbol, dual_vb)
+    return BasisIndex(t.symbol, dual_vb)
 end
 
+"""
+    flip(t::AbstractIndex) -> AbstractIndex
+
+Return a new index with the dual vbundle (toggle variance).
+"""
+flip(t::AbstractIndex) = _flip_index(t)
+
 
 # =========================================
-# 4.  Unary operators on TensorIndex
-#     Enables: -a1  (covariant sugar)  and  +a1  (identity)
-#     Since @def_manifold binds a1 = TensorIndex(:a1, :tangentM),
-#     [a1, -a2] now produces Vector{TensorIndex} uniformly.
+# 4.  Unary operators
 # =========================================
 
-"""
-    Base.:-(t::TensorIndex) -> TensorIndex
-
-Unary minus on a [`TensorIndex`](@ref): returns `flip(t)` (toggles variance).
-Enables bracket sugar such as `F[-a1, -a2]` when indexing a [`Tensor`](@ref).
-
-    -a1   →  TensorIndex(:a1, :cotangentM)   # if a1 is contravariant
-    -a1   →  TensorIndex(:a1, :tangentM)     # if a1 is covariant  (double flip)
-"""
-Base.:-(t::TensorIndex) = flip(t)
-
-"""
-    Base.:+(t::TensorIndex) -> TensorIndex
-
-Unary plus on a [`TensorIndex`](@ref): identity, returns `t` unchanged.
-"""
-Base.:+(t::TensorIndex) = t
+Base.:-(t::AbstractIndex) = flip(t)
+Base.:+(t::AbstractIndex) = t
 
 
 # =========================================
 # 5.  Variance predicates
 # =========================================
 
-"""
-    is_up(t::TensorIndex) -> Bool
-
-True if `t` is an upper (contravariant) index — lives in the tangent bundle
-(`isdual = false`). Equivalent to `t.is_up`.
-"""
-function is_up(t::TensorIndex)
+function is_up(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")
     !_VBUNDLES[t.vbundle].isdual
 end
 
-"""
-    is_down(t::TensorIndex) -> Bool
-
-True if `t` is a lower (covariant) index — lives in the cotangent (dual) bundle
-(`isdual = true`). Equivalent to `t.is_down`.
-"""
-function is_down(t::TensorIndex)
+function is_down(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")
     _VBUNDLES[t.vbundle].isdual
 end
 
-function Base.getproperty(t::TensorIndex, field::Symbol)
+function Base.getproperty(t::AbstractIndex, field::Symbol)
     if field === :is_up
         return is_up(t)
     elseif field === :is_down
@@ -242,7 +262,7 @@ function Base.getproperty(t::TensorIndex, field::Symbol)
     end
 end
 
-function Base.propertynames(::TensorIndex, private::Bool=false)
+function Base.propertynames(::AbstractIndex, private::Bool=false)
     (:symbol, :vbundle, :is_up, :is_down)
 end
 
@@ -251,82 +271,61 @@ end
 # 6.  Predicates
 # =========================================
 
-"""
-    same_symbol(a::TensorIndex, b::TensorIndex) -> Bool
-
-!!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
-    package. It is not part of the public API and may change without notice.
-
-True if both indices carry the same symbol, regardless of bundle.
-Used to detect repeated indices (Einstein summation candidates).
-"""
-same_symbol(a::TensorIndex, b::TensorIndex) = a.symbol == b.symbol
+same_symbol(a::AbstractIndex, b::AbstractIndex) = a.symbol == b.symbol
 
 """
-    contractable(a::TensorIndex, b::TensorIndex) -> Bool
+    contractable(a::AbstractIndex, b::AbstractIndex) -> Bool
 
-!!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
-    package. It is not part of the public API and may change without notice.
-
-True if `a` and `b` form a valid Einstein summation pair:
-same symbol, and their vbundles are registered dual partners
-(see [`is_dual_vbundles`](@ref)).
+True if `a` and `b` form a valid Einstein summation pair: same kind,
+same symbol, dual vbundles.
 """
-function contractable(a::TensorIndex, b::TensorIndex)
+function contractable(a::AbstractIndex, b::AbstractIndex)
+    typeof(a) === typeof(b) ||
+        return false
     same_symbol(a, b) && is_dual_vbundles(a.vbundle, b.vbundle)
 end
 
 
 # =========================================
-# 8.  Equality & hashing
+# 7.  Equality & hashing
 # =========================================
 
-Base.:(==)(a::TensorIndex, b::TensorIndex) =
+Base.:(==)(a::CoordinateIndex, b::CoordinateIndex) =
     a.symbol == b.symbol && a.vbundle == b.vbundle
+Base.:(==)(a::BasisIndex, b::BasisIndex) =
+    a.symbol == b.symbol && a.vbundle == b.vbundle
+Base.:(==)(a::AbstractIndex, b::AbstractIndex) = false
 
-Base.hash(t::TensorIndex, h::UInt) = hash((t.symbol, t.vbundle), h)
+Base.hash(t::CoordinateIndex, h::UInt) = hash((CoordinateIndex, t.symbol, t.vbundle), h)
+Base.hash(t::BasisIndex, h::UInt)       = hash((BasisIndex, t.symbol, t.vbundle), h)
 
 
 # =========================================
-# 9.  Display
+# 8.  Display
 # =========================================
 
-function Base.show(io::IO, t::TensorIndex)
-    prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : " "
-    print(io, "$(prefix)$(t.symbol) ∈ $(t.vbundle)")
+function Base.show(io::IO, t::AbstractIndex)
+    prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : "+"
+    kind   = t isa CoordinateIndex ? "coord" : "basis"
+    print(io, "$(prefix)$(t.symbol) ∈ $(t.vbundle) ($(kind))")
 end
 
 
 # =========================================
-# 10.  @add_indices macro
+# 9.  @add_indices macro  (coordinate indices only)
 # =========================================
-
-# Note: there is no @remove_indices macro.
-# Removing an individual index after definition is unsafe — any tensor
-# already defined using that index would be left in an inconsistent state
-# with no way to detect it at runtime. Index removal is only performed
-# as part of a full @undef_manifold teardown, which coordinates cleanup
-# across _INDICES, _VBUNDLES, and _MANIFOLDS atomically.
 
 """
     @add_indices M idx1 idx2 ...
 
-Register extra index symbols to the tangent bundle of manifold `M` and
-bind each to a contravariant [`TensorIndex`](@ref) in the caller's scope.
-
-`@def_manifold` already registers its index list, so `@add_indices` is
-useful for introducing additional indices after manifold definition.
-
-Requires that `M` has already been defined with `@def_manifold`.
+Register extra **coordinate** index symbols to the tangent bundle of manifold
+`M` and bind each to a contravariant [`CoordinateIndex`](@ref) in scope.
 
 # Example
 ```julia
-@def_manifold M 4 [a1, a2, a3, a4]
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @add_indices M a5 a6
-a5                  # TensorIndex(:a5, :tangentM)
--a6                 # TensorIndex(:a6, :cotangentM)
+a5   # CoordinateIndex(:a5, :tangentM)
 ```
 """
 macro add_indices(manifold_name, idx_syms...)
@@ -342,8 +341,8 @@ macro add_indices(manifold_name, idx_syms...)
         s isa Symbol ||
             error("@add_indices: index names must be plain symbols, got $s.")
         quote
-            register_index!($(QuoteNode(s)), $(tangent_sym))
-            $(esc(s)) = TensorIndex($(QuoteNode(s)), $(tangent_sym))
+            register_coordinate_index!($(QuoteNode(s)), $(tangent_sym))
+            $(esc(s)) = CoordinateIndex($(QuoteNode(s)), $(tangent_sym))
         end
     end
 
@@ -360,58 +359,39 @@ end
 
 
 # =========================================
-# 11.  Validation helpers  (used by tensors.jl)
+# 10.  Validation helpers
 # =========================================
 
-"""
-    validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
-
-!!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
-    package. It is not part of the public API and may change without notice.
-
-Assert that every symbol in `syms` is registered and its home bundle
-matches `vbundle`. Throws a descriptive error on the first violation.
-
-Called by `@def_tensor` at definition time.
-"""
 function validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
     for s in syms
-        haskey(_INDICES, s) ||
+        is_coordinate_index(s) ||
             error(
-                "Index :$s is not registered. " *
+                "Index :$s is not registered as a coordinate index. " *
                 "Call @def_manifold or @add_indices first."
             )
-        actual = _INDICES[s]
+        actual = _COORDINATE_INDICES[s]
         actual == vbundle ||
             error(
                 "Index :$s has home bundle $actual, " *
-                "but expected $vbundle. " *
-                "All indices of a tensor must share the same home bundle."
+                "but expected $vbundle."
             )
     end
 end
 
-"""
-    validate_contraction(a::TensorIndex, b::TensorIndex)
-
-!!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
-    package. It is not part of the public API and may change without notice.
-
-Throw a descriptive error if `a` and `b` cannot be contracted.
-"""
-function validate_contraction(a::TensorIndex, b::TensorIndex)
+function validate_contraction(a::AbstractIndex, b::AbstractIndex)
+    typeof(a) === typeof(b) ||
+        error(
+            "Cannot contract $(a.symbol) ($(typeof(a))) with $(b.symbol) ($(typeof(b))): " *
+            "indices must be of the same kind (both coordinate or both basis)."
+        )
     same_symbol(a, b) ||
         error(
-            "Cannot contract $(a.symbol) with $(b.symbol): different symbols. " *
-            "Contraction requires the same index in dual bundles."
+            "Cannot contract $(a.symbol) with $(b.symbol): different symbols."
         )
     is_dual_vbundles(a.vbundle, b.vbundle) ||
         error(
             "Cannot contract $(a.symbol) ($(a.vbundle)) " *
-            "with $(b.symbol) ($(b.vbundle)): " *
-            "bundles are not dual partners."
+            "with $(b.symbol) ($(b.vbundle)): bundles are not dual partners."
         )
 end
 
@@ -420,8 +400,10 @@ end
 # Exports
 # =========================================
 
-export TensorIndex
-export flip
-export _INDICES
+export AbstractIndex, CoordinateIndex, BasisIndex
+export flip, up
+export _COORDINATE_INDICES, _BASIS_INDICES
 export is_up, is_down
+export basis_indices_for_vbundle
+export register_coordinate_index!, register_basis_index!, unregister_index!
 export @add_indices

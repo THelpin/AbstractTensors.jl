@@ -7,12 +7,12 @@
 #     in the caller's scope, all queryable via dot access:
 #       M.dim, M.tangent_bundle, tangentM.isdual, etc.
 #   - All metadata lives in module-level registries.
-#   - Indices are registered via register_index! from indices.jl.
+#   - Indices are registered via register_coordinate_index! / register_basis_index! from indices.jl.
 #   - VBundle.isdual is the single authoritative source for
 #     bundle variance (false = tangent, true = cotangent/dual).
 #     No naming conventions are relied upon for this.
-#   - Each index symbol is bound in the caller's scope as a
-#     contravariant TensorIndex (no IndexSymbol type).
+#   - Coordinate index symbols are bound as contravariant CoordinateIndex;
+#     basis index symbols as contravariant BasisIndex.
 #
 # xTensor analogs:
 #   $Manifolds              → _MANIFOLDS
@@ -73,7 +73,8 @@ Provides dot access to all metadata:
     tangentM.dim       # 4
     tangentM.isdual    # false
     tangentM.dual      # :cotangentM
-    tangentM.indices   # [TensorIndex(:a1, :tangentM), ...]
+    tangentM.indices   # [CoordinateIndex(:a1, :tangentM), ...]
+    tangentM.basis_indices  # [BasisIndex(:A1, :tangentM), ...]  (virtual)
     tangentM.bases     # [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :moving)]
 
 ### Fields
@@ -84,7 +85,9 @@ Provides dot access to all metadata:
 - `isdual`   : false = contravariant (upper) slots, true = covariant (lower) slots.
                Authoritative for index variance via [`is_up`](@ref) / [`is_down`](@ref).
 - `dual`     : name of the paired dual bundle, e.g. `:cotangentM` or `:dualE`
-- `indices`  : the `TensorIndex` objects living in this bundle
+- `indices`  : [`AbstractIndex`](@ref) objects stored on this bundle;
+               [`CoordinateIndex`](@ref) on tangent/cotangent bundles,
+               [`BasisIndex`](@ref) on `@def_vbundle` bundles
 """
 struct VBundle
     name::Symbol
@@ -92,7 +95,7 @@ struct VBundle
     dim::Dim
     isdual::Bool
     dual::Symbol
-    indices::Vector{TensorIndex}
+    indices::Vector{AbstractIndex}
 end
 
 
@@ -161,7 +164,7 @@ function is_cotangent_bundle(vb::Symbol)
     vb == m.cotangent_bundle
 end
 
-endis_cotangent_bundle(::Any)      = false
+is_cotangent_bundle(::Any)      = false
 
 
 # =========================================
@@ -333,33 +336,37 @@ function _parse_manifold_kwargs(kwargs)
 end
 
 """
-    @def_manifold name dim [idx1, idx2, ...]
+    @def_manifold name dim coord_indices basis_indices [kwargs...]
 
 Define a new manifold and automatically create its tangent and cotangent
-bundles. Bind the following variables in the caller's scope:
+bundles, coordinate frames, and moving frame bundles.
+
+Both index lists are **required**. Each list should have at least 4 symbols
+(a warning is issued if fewer).
+
+Bind in the caller's scope:
 - `name`            → a [`Manifold`](@ref) instance
 - `tangent<name>`   → a [`VBundle`](@ref) instance (`isdual = false`)
 - `cotangent<name>` → a [`VBundle`](@ref) instance (`isdual = true`)
+- `frame<name>`, `coframe<name>`, moving basis symbols (default `e`, `θ`)
 
-Each index symbol is bound in the caller's scope as a contravariant
-[`TensorIndex`](@ref), so unary `-` can be used directly:
+Coordinate indices (first list) → [`CoordinateIndex`](@ref):
 
-    a1          # TensorIndex(:a1, :tangentM)   — contravariant
-    -a1         # TensorIndex(:a1, :cotangentM) — covariant
-    [a1, -a2]   # Vector{TensorIndex}           — uniform type
+    a1          # CoordinateIndex(:a1, :tangentM)   — contravariant
+    -a1         # CoordinateIndex(:a1, :cotangentM) — covariant
 
-`dim` can be a concrete integer or a symbolic name for parametric manifolds.
+Basis indices (second list) → [`BasisIndex`](@ref):
 
-Register `name` in `_MANIFOLDS`, the tangent and cotangent bundles in
-`_VBUNDLES`, and all index symbols in `_INDICES`.
+    A1          # BasisIndex(:A1, :tangentM)   — contravariant
+    -A1         # BasisIndex(:A1, :cotangentM) — covariant
 
 #### Examples
 ```julia
-@def_manifold M 4 [a1, a2, a3, a4]   # concrete dimension
-@def_manifold M d [b1, b2, b3, b4]   # parametric dimension
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
+@def_manifold M d [b1, b2, b3, b4] [B1, B2, B3, B4]   # parametric dimension
 ```
 """
-macro def_manifold(name, dim, indices, kwargs...)
+macro def_manifold(name, dim, coord_indices, basis_indices, kwargs...)
     name isa Symbol ||
         error("@def_manifold: first argument must be a symbol, got $name")
 
@@ -380,7 +387,8 @@ macro def_manifold(name, dim, indices, kwargs...)
     name_symbol      = QuoteNode(name)
     tangent_symbol   = QuoteNode(tangent_name)
     cotangent_symbol = QuoteNode(cotangent_name)
-    index_symbols    = _macro_index_symbols(indices)
+    coord_symbols    = _macro_index_symbols(coord_indices)
+    basis_symbols    = _macro_index_symbols(basis_indices)
 
     quote
         # ── Guard: clean up stale registry entries if redefining ─────────
@@ -394,6 +402,9 @@ macro def_manifold(name, dim, indices, kwargs...)
                 end
                 delete!(_VBUNDLES, _old_tb)
                 delete!(_VBUNDLES, _old_ctb)
+            end
+            for _bs in collect(keys(_BASIS_INDICES))
+                _BASIS_INDICES[_bs] == _old_tb && unregister_basis_index!(_bs)
             end
             # Clean up all frame types from _BASES
             for _ftype in (:coordinate, :moving)
@@ -410,29 +421,38 @@ macro def_manifold(name, dim, indices, kwargs...)
 
         # ── Runtime locals ───────────────────────────────────────────────
         local _dim::Dim = $(dim_expr)
-        local _indices  = $(index_symbols)
+        local _coord_indices  = $(coord_symbols)
+        local _basis_indices  = $(basis_symbols)
 
         _dim isa Int && (_dim > 0 || error("@def_manifold: dimension must be positive, got $_dim"))
 
-        if length(_indices) < 4
-            @warn "Manifold $($(name_symbol)): fewer indices ($(length(_indices))) " *
+        if length(_coord_indices) < 4
+            @warn "Manifold $($(name_symbol)): fewer coordinate indices ($(length(_coord_indices))) " *
                   "than 4. Add more with @add_indices later."
+        end
+        if length(_basis_indices) < 4
+            @warn "Manifold $($(name_symbol)): fewer basis indices ($(length(_basis_indices))) " *
+                  "than 4."
         end
 
         # ── Step 1: Register manifold stub ────────────────────────────────
-        # (We print the manifold line first, before bundles and frames.)
         println("Defined manifold $($(name_symbol)) of dimension $(_dim)")
 
-        # ── Step 2: Register indices ──────────────────────────────────────
-        for _idx in _indices
-            register_index!(_idx, $(tangent_symbol))
+        # ── Step 2: Register coordinate indices ─────────────────────────────
+        for _idx in _coord_indices
+            register_coordinate_index!(_idx, $(tangent_symbol))
         end
 
-        # ── Step 3: Build TensorIndex vectors ────────────────────────────
-        local _t_indices = [TensorIndex(s, $(tangent_symbol))   for s in _indices]
-        local _c_indices = [TensorIndex(s, $(cotangent_symbol)) for s in _indices]
+        # ── Step 3: Register basis indices ────────────────────────────────
+        for _bidx in _basis_indices
+            register_basis_index!(_bidx, $(tangent_symbol))
+        end
 
-        # ── Step 4: Register bundles ─────────────────────────────────────
+        # ── Step 4: Build index vectors for VBundle ───────────────────────
+        local _t_indices = [CoordinateIndex(s, $(tangent_symbol))   for s in _coord_indices]
+        local _c_indices = [CoordinateIndex(s, $(cotangent_symbol)) for s in _coord_indices]
+
+        # ── Step 5: Register bundles ─────────────────────────────────────
         _VBUNDLES[$(tangent_symbol)] = VBundle(
             $(tangent_symbol), $(name_symbol), _dim, false,
             $(cotangent_symbol), _t_indices
@@ -442,28 +462,28 @@ macro def_manifold(name, dim, indices, kwargs...)
             $(tangent_symbol), _c_indices
         )
 
-        # ── Step 5: Register manifold ─────────────────────────────────────
+        # ── Step 6: Register manifold ─────────────────────────────────────
         _MANIFOLDS[$(name_symbol)] = Manifold(
             $(name_symbol), _dim,
             $(tangent_symbol), $(cotangent_symbol),
             [$(tangent_symbol), $(cotangent_symbol)]
         )
 
-        # ── Step 6: Bind Manifold and VBundle instances in caller's scope ─
+        # ── Step 7: Bind Manifold and VBundle instances in caller's scope ─
         $(esc(name))           = _MANIFOLDS[$(name_symbol)]
         $(esc(tangent_name))   = _VBUNDLES[$(tangent_symbol)]
         $(esc(cotangent_name)) = _VBUNDLES[$(cotangent_symbol)]
 
-        # ── Step 7: Bind TensorIndex variables in caller's scope ──────────
-        $([ :($(esc(s)) = TensorIndex($(QuoteNode(s)), $(tangent_symbol))) for s in index_symbols ]...)
+        # ── Step 8: Bind CoordinateIndex variables in caller's scope ─────
+        $([ :($(esc(s)) = CoordinateIndex($(QuoteNode(s)), $(tangent_symbol))) for s in coord_symbols ]...)
 
-        # ── Step 8: Register coordinate frame (inline) ────────────────────
-        # Binds nat_frame and nat_coframe (e.g. ∂ and dx) in the caller's scope.
+        # ── Step 9: Bind BasisIndex variables in caller's scope ───────────
+        $([ :($(esc(s)) = BasisIndex($(QuoteNode(s)), $(tangent_symbol))) for s in basis_symbols ]...)
+
+        # ── Step 10: Register coordinate frame (inline) ───────────────────
         $(_gen_coord_frame_registration_expr(tangent_symbol, cotangent_symbol, nat_frame, nat_coframe))
 
-        # ── Step 9: Register moving frame (inline) ────────────────────────
-        # Creates FrameBundle objects and binds frame_name, coframe_name,
-        # mov_frame, mov_coframe (e.g. frameM, coframeM, e, θ) in scope.
+        # ── Step 11: Register moving frame (inline) ───────────────────────
         $(_gen_moving_frame_registration_expr(
             frame_name, coframe_name,
             tangent_symbol, cotangent_symbol,
@@ -489,8 +509,8 @@ from the module-level registries.
 After this call:
 - `_MANIFOLDS[name]`  no longer exists
 - `_VBUNDLES[tangentM]` and `_VBUNDLES[cotangentM]` no longer exist
-- every index symbol that belonged to the tangent bundle is unregistered
-  from `_INDICES`
+- every coordinate and basis index symbol registered to the tangent bundle is unregistered
+  from `_COORDINATE_INDICES` and `_BASIS_INDICES`
 
 ## Stale variable warning
 
@@ -500,7 +520,7 @@ Julia module-level bindings cannot be deleted at runtime. The variable
 that stale reference will raise an immediate warning:
 
 ```julia
-@def_manifold M 4 [a1, a2, a3, a4]
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @undef_manifold M
 
 M.dim   # → Warning: Manifold :M has been undefined. Variable still holds a stale reference.
@@ -530,6 +550,9 @@ macro undef_manifold(name)
         if haskey(_VBUNDLES, _tb_name)
             for _t_idx in getfield(_VBUNDLES[_tb_name], :indices)
                 unregister_index!(getfield(_t_idx, :symbol))
+            end
+            for _bs in collect(keys(_BASIS_INDICES))
+                _BASIS_INDICES[_bs] == _tb_name && unregister_basis_index!(_bs)
             end
             delete!(_VBUNDLES, _tb_name)
             delete!(_VBUNDLES, _ctb_name)
@@ -609,6 +632,9 @@ function Base.getproperty(v::VBundle, field::Symbol)
     if field === :bases
         return bases_for_vbundle(getfield(v, :name))
     end
+    if field === :basis_indices
+        return basis_indices_for_vbundle(getfield(v, :name))
+    end
     if !haskey(_VBUNDLES, getfield(v, :name))
         @warn "VBundle :$(getfield(v, :name)) has been undefined. " *
               "Variable still holds a stale reference."
@@ -624,7 +650,7 @@ Return the property names available on a `VBundle`, including the
 virtual `:bases` property backed by `_BASES`.
 """
 function Base.propertynames(::VBundle, private::Bool=false)
-    (:name, :manifold, :dim, :isdual, :dual, :indices, :bases)
+    (:name, :manifold, :dim, :isdual, :dual, :indices, :bases, :basis_indices)
 end
 
 # =========================================

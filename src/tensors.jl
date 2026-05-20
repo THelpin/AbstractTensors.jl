@@ -12,9 +12,9 @@
 #   - Dot-access provides derived properties (rank).
 #
 # Index binding change (from previous version):
-#   Index variables in caller scope are now TensorIndex, not IndexSymbol.
-#   The macro syntax T[-a1, a2] still works unchanged: unary - on a
-#   TensorIndex calls flip, giving the covariant form. The parsing logic
+#   Index variables in caller scope are CoordinateIndex or BasisIndex, not IndexSymbol.
+#   The macro syntax T[-a1, a2] still works unchanged: unary - on an
+#   AbstractIndex calls flip, giving the covariant form. The parsing logic
 #   in _parse_tensor_head operates on Symbols internally and is unaffected.
 #
 # xTensor analogs:

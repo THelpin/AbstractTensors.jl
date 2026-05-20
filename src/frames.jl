@@ -15,8 +15,8 @@
 #   _BASES[(vbundle, :moving)]     → Basis(:e,   :tangentM,   :moving)
 #
 # Convention for BasisElement indexing (unchanged):
-#   dx[a1]   → BasisElement(Basis(:dx,:cotangentM,:coordinate), TensorIndex(:a1,:tangentM))
-#   ∂[-a1]   → BasisElement(Basis(:∂, :tangentM,  :coordinate), TensorIndex(:a1,:cotangentM))
+#   dx[a1]   → BasisElement(Basis(:dx,:cotangentM,:coordinate), CoordinateIndex(:a1,:tangentM))
+#   ∂[-a1]   → BasisElement(Basis(:∂, :tangentM,  :coordinate), CoordinateIndex(:a1,:cotangentM))
 #
 # basis_expansion(T[-a1,-a2])               →  T[-a1,-a2] dx[a1] ⊗ dx[a2]
 # basis_expansion(T[-a1,-a2]; frame=:moving) →  T[-a1,-a2] θ[a1]  ⊗ θ[a2]
@@ -47,7 +47,7 @@ standalone [`@def_frame_bundle`](@ref) (moving only for custom bundles).
 - `vbundle` : the bundle this frame is for, e.g. `:cotangentM`
 - `type`    : `:coordinate` (natural frame) or `:moving` (user-defined frame)
 
-Indexing a `Basis` with a [`TensorIndex`](@ref) from the **dual** bundle
+Indexing a `Basis` with an [`AbstractIndex`](@ref) from the **dual** bundle
 produces a [`BasisElement`](@ref):
 
     dx[a1]    # a1 ∈ tangentM  → BasisElement of cotangentM coordinate frame
@@ -73,17 +73,17 @@ on a [`Basis`](@ref).
 ### Fields
 
 - `basis` : the [`Basis`](@ref) this element belongs to
-- `index` : the [`TensorIndex`](@ref) labeling this element;
+- `index` : the [`AbstractIndex`](@ref) labeling this element;
             its vbundle is the **dual** of `basis.vbundle`
 
-    dx[a1]   → BasisElement(Basis(:dx, :cotangentM, :coordinate), TensorIndex(:a1, :tangentM))
-    θ[a1]    → BasisElement(Basis(:θ,  :cotangentM, :moving),     TensorIndex(:a1, :tangentM))
-    ∂[-a1]   → BasisElement(Basis(:∂,  :tangentM,   :coordinate), TensorIndex(:a1, :cotangentM))
-    e[-a1]   → BasisElement(Basis(:e,  :tangentM,   :moving),     TensorIndex(:a1, :cotangentM))
+    dx[a1]   → BasisElement(Basis(:dx, :cotangentM, :coordinate), CoordinateIndex(:a1, :tangentM))
+    θ[a1]    → BasisElement(Basis(:θ,  :cotangentM, :moving),     CoordinateIndex(:a1, :tangentM))
+    ∂[-a1]   → BasisElement(Basis(:∂,  :tangentM,   :coordinate), CoordinateIndex(:a1, :cotangentM))
+    e[-a1]   → BasisElement(Basis(:e,  :tangentM,   :moving),     CoordinateIndex(:a1, :cotangentM))
 """
 struct BasisElement
     basis::Basis
-    index::TensorIndex   # vbundle is the DUAL of basis.vbundle
+    index::AbstractIndex   # vbundle is the DUAL of basis.vbundle
 end
 
 
@@ -256,11 +256,11 @@ end
 
 
 # =========================================
-# 9.  getindex — Basis[TensorIndex] → BasisElement
+# 9.  getindex — Basis[AbstractIndex] → BasisElement
 # =========================================
 
 """
-    Base.getindex(b::Basis, idx::TensorIndex) -> BasisElement
+    Base.getindex(b::Basis, idx::AbstractIndex) -> BasisElement
 
 Construct a [`BasisElement`](@ref) by applying basis `b` to index `idx`.
 
@@ -271,7 +271,7 @@ Validates that `idx.vbundle` is the dual of `b.vbundle`:
     ∂[-a1]    # -a1 ∈ cotangentM → valid for tangentM basis (coordinate)
     e[-a1]    # -a1 ∈ cotangentM → valid for tangentM basis (moving)
 """
-function Base.getindex(b::Basis, idx::TensorIndex)
+function Base.getindex(b::Basis, idx::AbstractIndex)
     haskey(_VBUNDLES, b.vbundle) ||
         error("Basis references unregistered vbundle :$(b.vbundle).")
     dual_vb = _VBUNDLES[b.vbundle].dual
@@ -314,7 +314,7 @@ The two basis names must differ.
 
 # Examples
 ```julia
-@def_manifold M 4 [a1, a2, a3, a4]   # frameM/coframeM already created with e/θ
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]   # frameM/coframeM already created with e/θ
 
 # Standalone use for a custom vbundle:
 @def_vbundle E M 3 [A1, A2, A3]
@@ -449,7 +449,9 @@ function basis_expansion(te::TensorExpression; frame::Symbol=:coordinate)
             )
         b        = _BASES[key]
         dual_vb  = _VBUNDLES[slot_vb].dual
-        dual_idx = TensorIndex(idx.symbol, dual_vb)
+        dual_idx = idx isa CoordinateIndex ?
+            CoordinateIndex(idx.symbol, dual_vb) :
+            BasisIndex(idx.symbol, dual_vb)
         push!(basis_elements, BasisElement(b, dual_idx))
     end
     BasisExpansion(te, basis_elements)
@@ -473,7 +475,12 @@ function basis_expansion(T::Tensor; frame::Symbol=:coordinate)
             "basis_expansion: tensor rank $n exceeds number of registered indices " *
             "($(length(tb_indices))). Add more with @add_indices."
         )
-    canonical_idxs = [TensorIndex(tb_indices[i].symbol, T.slots[i]) for i in 1:n]
+    canonical_idxs = [
+        tb_indices[i] isa CoordinateIndex ?
+            CoordinateIndex(tb_indices[i].symbol, T.slots[i]) :
+            BasisIndex(tb_indices[i].symbol, T.slots[i])
+        for i in 1:n
+    ]
     basis_expansion(TensorExpression(T, canonical_idxs); frame=frame)
 end
 

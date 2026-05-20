@@ -1,6 +1,6 @@
 using AbstractTensors
-using AbstractTensors: contractable, register_index!, unregister_index!,
-    index_home_vbundle, validate_indices, validate_contraction,
+using AbstractTensors: contractable, register_coordinate_index!, register_basis_index!,
+    unregister_index!, index_home_vbundle, validate_indices, validate_contraction,
     is_dual_vbundles, show_registry
 using Test
 
@@ -12,7 +12,7 @@ using Test
 function _clear_all_registries!()
     empty!(_MANIFOLDS)
     empty!(_VBUNDLES)
-    empty!(_INDICES)
+    empty!(_COORDINATE_INDICES); empty!(_BASIS_INDICES)
     empty!(_TENSORS)
     empty!(_METRICS)
     empty!(_BASES)
@@ -23,18 +23,18 @@ end
 @testset "AbstractTensors.jl" begin
 
     # ─────────────────────────────────────────────────────────────────
-    @testset "TensorIndex — construction and predicates" begin
+    @testset "CoordinateIndex — construction and predicates" begin
         _clear_all_registries!()
-        @def_manifold TI_M 4 [ti_a, ti_b, ti_c, ti_d]
+        @def_manifold TI_M 4 [ti_a, ti_b, ti_c, ti_d] [TIM_B1, TIM_B2, TIM_B3, TIM_B4]
 
-        # @def_manifold binds contravariant TensorIndex variables
-        @test ti_a isa TensorIndex
-        @test [ti_a, -ti_b] isa Vector{TensorIndex}
+        # @def_manifold binds contravariant CoordinateIndex variables
+        @test ti_a isa CoordinateIndex
+        @test [ti_a, -ti_b] isa Vector{CoordinateIndex}
 
         ua = ti_a
         da = -ti_a
 
-        @test ua isa TensorIndex
+        @test ua isa CoordinateIndex
         @test ua.symbol  == :ti_a
         @test ua.vbundle == :tangentTI_M
 
@@ -55,13 +55,13 @@ end
         @test flip(da) == ua
 
         # equality and hashing
-        @test ua == TensorIndex(:ti_a, :tangentTI_M)
+        @test ua == CoordinateIndex(:ti_a, :tangentTI_M)
         @test ua != da
-        @test hash(ua) == hash(TensorIndex(:ti_a, :tangentTI_M))
+        @test hash(ua) == hash(CoordinateIndex(:ti_a, :tangentTI_M))
 
         # symbol-named sibling index
-        @test ti_b == TensorIndex(:ti_b, :tangentTI_M)
-        @test -ti_b == TensorIndex(:ti_b, :cotangentTI_M)
+        @test ti_b == CoordinateIndex(:ti_b, :tangentTI_M)
+        @test -ti_b == CoordinateIndex(:ti_b, :cotangentTI_M)
 
         # show does not throw
         @test (repr(ua); true)
@@ -69,9 +69,9 @@ end
 
 
     # ─────────────────────────────────────────────────────────────────
-    @testset "TensorIndex — is_dual_vbundles / contractable" begin
+    @testset "AbstractIndex — is_dual_vbundles / contractable" begin
         _clear_all_registries!()
-        @def_manifold TI2_M 4 [ti2_a, ti2_b, ti2_c, ti2_d]
+        @def_manifold TI2_M 4 [ti2_a, ti2_b, ti2_c, ti2_d] [TI2M_B1, TI2M_B2, TI2M_B3, TI2M_B4]
 
         ua = ti2_a
         da = -ti2_a
@@ -88,6 +88,28 @@ end
         @test contractable(da, ua)
         @test !contractable(ua, ub)
         @test !contractable(ua, ti2_b)
+
+        # cannot contract coordinate with basis index (even same symbol name)
+        @test TI2M_B1 isa BasisIndex
+        @test !contractable(ua, -TI2M_B1)
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "BasisIndex — construction and registry" begin
+        _clear_all_registries!()
+        @def_manifold BI_M 4 [bi_a1, bi_a2, bi_a3, bi_a4] [BI_A1, BI_A2, BI_A3, BI_A4]
+
+        @test BI_A1 isa BasisIndex
+        @test BI_A1.vbundle == :tangentBI_M
+        @test (-BI_A1).vbundle == :cotangentBI_M
+        @test haskey(_BASIS_INDICES, :BI_A1)
+        @test !haskey(_COORDINATE_INDICES, :BI_A1)
+        @test haskey(_COORDINATE_INDICES, :bi_a1)
+
+        @test tangentBI_M.basis_indices isa Vector{BasisIndex}
+        @test length(tangentBI_M.basis_indices) == 4
+        @test tangentBI_M.basis_indices[1].symbol == :BI_A1
     end
 
 
@@ -95,18 +117,26 @@ end
     @testset "Index registry — register / unregister / validate" begin
         _clear_all_registries!()
 
-        register_index!(:reg_x, :tangentREG)
-        @test haskey(_INDICES, :reg_x)
+        register_coordinate_index!(:reg_x, :tangentREG)
+        @test haskey(_COORDINATE_INDICES, :reg_x)
         @test index_home_vbundle(:reg_x) == :tangentREG
 
         # idempotent re-registration to same bundle
-        @test (register_index!(:reg_x, :tangentREG); true)
+        @test (register_coordinate_index!(:reg_x, :tangentREG); true)
 
         # conflict → error
-        @test_throws ErrorException register_index!(:reg_x, :tangentOTHER)
+        @test_throws ErrorException register_coordinate_index!(:reg_x, :tangentOTHER)
+
+        register_basis_index!(:reg_b, :tangentREG)
+        @test haskey(_BASIS_INDICES, :reg_b)
+
+        # cross-registry collision
+        @test_throws ErrorException register_basis_index!(:reg_x, :tangentREG)
 
         unregister_index!(:reg_x)
-        @test !haskey(_INDICES, :reg_x)
+        unregister_index!(:reg_b)
+        @test !haskey(_COORDINATE_INDICES, :reg_x)
+        @test !haskey(_BASIS_INDICES, :reg_b)
 
         # unregistered access → error
         @test_throws ErrorException index_home_vbundle(:not_registered)
@@ -116,14 +146,14 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@add_indices" begin
         _clear_all_registries!()
-        @def_manifold AI_M 4 [ai_a1, ai_a2, ai_a3, ai_a4]
+        @def_manifold AI_M 4 [ai_a1, ai_a2, ai_a3, ai_a4] [AIM_B1, AIM_B2, AIM_B3, AIM_B4]
 
         @add_indices AI_M ai_a5 ai_a6
-        @test haskey(_INDICES, :ai_a5)
-        @test haskey(_INDICES, :ai_a6)
+        @test haskey(_COORDINATE_INDICES, :ai_a5)
+        @test haskey(_COORDINATE_INDICES, :ai_a6)
         @test ai_a5.vbundle == :tangentAI_M
-        @test ai_a5 == TensorIndex(:ai_a5, :tangentAI_M)
-        @test -ai_a6 == TensorIndex(:ai_a6, :cotangentAI_M)
+        @test ai_a5 == CoordinateIndex(:ai_a5, :tangentAI_M)
+        @test -ai_a6 == CoordinateIndex(:ai_a6, :cotangentAI_M)
 
         # adding to unregistered manifold → error
         @test_throws ErrorException @eval @add_indices FAKE_M ai_z1
@@ -133,24 +163,25 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_vbundle — dual field and flip" begin
         _clear_all_registries!()
-        @def_manifold VB_M 4 [vb_a1, vb_a2, vb_a3, vb_a4]
+        @def_manifold VB_M 4 [vb_a1, vb_a2, vb_a3, vb_a4] [VBM_B1, VBM_B2, VBM_B3, VBM_B4]
         @def_vbundle VB_E VB_M 3 [VB_A1, VB_A2, VB_A3]
 
         @test VB_E.dual == :dualVB_E
         @test dualVB_E.dual == :VB_E
+        @test VB_A1 isa BasisIndex
         @test VB_A1.vbundle == :VB_E
         @test (-VB_A1).vbundle == :dualVB_E
         @test is_dual_vbundles(:VB_E, :dualVB_E)
         @test is_dual_vbundles(:dualVB_E, :VB_E)
         @test !is_dual_vbundles(:VB_E, :cotangentVB_M)
-        @test [VB_A1, -VB_A2, -VB_A3] isa Vector{TensorIndex}
+        @test [VB_A1, -VB_A2, -VB_A3] isa Vector{BasisIndex}
     end
 
 
     # ─────────────────────────────────────────────────────────────────
     @testset "Manifold and VBundle structs" begin
         _clear_all_registries!()
-        @def_manifold MAN_M 4 [mn_a1, mn_a2, mn_a3, mn_a4]
+        @def_manifold MAN_M 4 [mn_a1, mn_a2, mn_a3, mn_a4] [MANM_B1, MANM_B2, MANM_B3, MANM_B4]
 
         @test MAN_M isa Manifold
         @test !(42 isa Manifold)
@@ -195,35 +226,36 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_manifold / @undef_manifold" begin
         _clear_all_registries!()
-        @def_manifold DM_M 3 [dm_a, dm_b, dm_c]
+        @def_manifold DM_M 3 [dm_a, dm_b, dm_c] [Dm_A1, Dm_A2, Dm_A3]
 
         @test haskey(_MANIFOLDS, :DM_M)
         @test haskey(_VBUNDLES,  :tangentDM_M)
         @test haskey(_VBUNDLES,  :cotangentDM_M)
-        @test haskey(_INDICES, :dm_a)
+        @test haskey(_COORDINATE_INDICES, :dm_a)
         @test :DM_M in keys(_MANIFOLDS)
 
         # redefine issues warning but succeeds
-        @test_warn r"already defined" @def_manifold DM_M 3 [dm_a, dm_b, dm_c]
+        @test_warn r"already defined" @def_manifold DM_M 3 [dm_a, dm_b, dm_c] [Dm_A1, Dm_A2, Dm_A3]
 
         # undefine
         @undef_manifold DM_M
         @test !haskey(_MANIFOLDS, :DM_M)
         @test !haskey(_VBUNDLES,  :tangentDM_M)
-        @test !haskey(_INDICES, :dm_a)
+        @test !haskey(_COORDINATE_INDICES, :dm_a)
+        @test !haskey(_BASIS_INDICES, :Dm_A1)
 
         # undef of non-existent → error
         @test_throws ErrorException @eval @undef_manifold GHOST_M
 
         # wrong arg type
-        @test_throws ErrorException macroexpand(@__MODULE__, :(@def_manifold 123 4 [x]))
+        @test_throws ErrorException macroexpand(@__MODULE__, :(@def_manifold 123 4 [x] [X1]))
     end
 
 
     # ─────────────────────────────────────────────────────────────────
     @testset "validate_indices" begin
         _clear_all_registries!()
-        @def_manifold VI_M 4 [vi_a, vi_b, vi_c, vi_d]
+        @def_manifold VI_M 4 [vi_a, vi_b, vi_c, vi_d] [VIM_B1, VIM_B2, VIM_B3, VIM_B4]
 
         # valid
         @test (validate_indices([:vi_a, :vi_b], :tangentVI_M); true)
@@ -239,7 +271,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "validate_contraction" begin
         _clear_all_registries!()
-        @def_manifold VC_M 4 [vc_a, vc_b, vc_c, vc_d]
+        @def_manifold VC_M 4 [vc_a, vc_b, vc_c, vc_d] [VCM_B1, VCM_B2, VCM_B3, VCM_B4]
 
         ua = vc_a; da = -vc_a; ub = vc_b
 
@@ -353,11 +385,11 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "canonical_rep" begin
         _clear_all_registries!()
-        @def_manifold CR_M 4 [cr_a, cr_b, cr_c, cr_d]
+        @def_manifold CR_M 4 [cr_a, cr_b, cr_c, cr_d] [CRM_B1, CRM_B2, CRM_B3, CRM_B4]
 
-        a = TensorIndex(:cr_a, :tangentCR_M)
-        b = TensorIndex(:cr_b, :tangentCR_M)
-        c = TensorIndex(:cr_c, :tangentCR_M)
+        a = CoordinateIndex(:cr_a, :tangentCR_M)
+        b = CoordinateIndex(:cr_b, :tangentCR_M)
+        c = CoordinateIndex(:cr_c, :tangentCR_M)
 
         asym2 = antisymmetric(2)
 
@@ -389,13 +421,13 @@ end
 
 
     # ─────────────────────────────────────────────────────────────────
-    @testset "TensorIndex isless (used by canonical_rep)" begin
+    @testset "CoordinateIndex isless (used by canonical_rep)" begin
         _clear_all_registries!()
-        @def_manifold IL_M 4 [il_a, il_b, il_c, il_d]
+        @def_manifold IL_M 4 [il_a, il_b, il_c, il_d] [ILM_B1, ILM_B2, ILM_B3, ILM_B4]
 
-        a_up = TensorIndex(:il_a, :tangentIL_M)
-        b_up = TensorIndex(:il_b, :tangentIL_M)
-        a_dn = TensorIndex(:il_a, :cotangentIL_M)
+        a_up = CoordinateIndex(:il_a, :tangentIL_M)
+        b_up = CoordinateIndex(:il_b, :tangentIL_M)
+        a_dn = CoordinateIndex(:il_a, :cotangentIL_M)
 
         @test a_up < b_up     # :il_a < :il_b lexicographically
         @test !(b_up < a_up)
@@ -407,7 +439,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "Tensor struct and accessors" begin
         _clear_all_registries!()
-        @def_manifold TS_M 4 [ts_a, ts_b, ts_c, ts_d]
+        @def_manifold TS_M 4 [ts_a, ts_b, ts_c, ts_d] [TSM_B1, TSM_B2, TSM_B3, TSM_B4]
         @def_metric   ts_g[-ts_a, -ts_b] TS_M
 
         @def_tensor TS_T[-ts_a, -ts_b] TS_M
@@ -433,7 +465,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor — slot variance" begin
         _clear_all_registries!()
-        @def_manifold SV_M 4 [sv_a, sv_b, sv_c, sv_d]
+        @def_manifold SV_M 4 [sv_a, sv_b, sv_c, sv_d] [SVM_B1, SVM_B2, SVM_B3, SVM_B4]
         @def_metric   sv_g[-sv_a, -sv_b] SV_M
 
         # all covariant
@@ -453,7 +485,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor — symmetries" begin
         _clear_all_registries!()
-        @def_manifold TSYM_M 4 [tsym_a, tsym_b, tsym_c, tsym_d]
+        @def_manifold TSYM_M 4 [tsym_a, tsym_b, tsym_c, tsym_d] [TSYMM_B1, TSYMM_B2, TSYMM_B3, TSYMM_B4]
         @def_metric   tsym_g[-tsym_a, -tsym_b] TSYM_M
 
         # default: [no_symmetry(n)]
@@ -479,7 +511,7 @@ end
 
         # symmetry degree mismatch → error
         @test_throws ErrorException @eval begin
-            @def_manifold ERR_SYM_M 4 [err_s_a, err_s_b, err_s_c, err_s_d]
+            @def_manifold ERR_SYM_M 4 [err_s_a, err_s_b, err_s_c, err_s_d] [ERRSYMM_B1, ERRSYMM_B2, ERRSYMM_B3, ERRSYMM_B4]
             @def_tensor ERR_SYM_T[-err_s_a, -err_s_b] ERR_SYM_M symmetries=symmetric(3)
         end
     end
@@ -488,7 +520,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor — print_as" begin
         _clear_all_registries!()
-        @def_manifold PA_M 4 [pa_a, pa_b, pa_c, pa_d]
+        @def_manifold PA_M 4 [pa_a, pa_b, pa_c, pa_d] [PAM_B1, PAM_B2, PAM_B3, PAM_B4]
         @def_metric pa_g[-pa_a, -pa_b] PA_M
 
         @def_tensor PA_T[-pa_a, -pa_b] PA_M print_as=:Riemann
@@ -499,7 +531,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor — metric resolution: one metric (silent)" begin
         _clear_all_registries!()
-        @def_manifold MR1_M 4 [mr1_a, mr1_b, mr1_c, mr1_d]
+        @def_manifold MR1_M 4 [mr1_a, mr1_b, mr1_c, mr1_d] [MR1M_B1, MR1M_B2, MR1M_B3, MR1M_B4]
         @def_metric mr1_g[-mr1_a, -mr1_b] MR1_M
 
         @def_tensor MR1_T[-mr1_a, -mr1_b] MR1_M   # no metric= given
@@ -510,7 +542,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor — metric resolution: no metric (warning + nothing)" begin
         _clear_all_registries!()
-        @def_manifold MR0_M 4 [mr0_a, mr0_b, mr0_c, mr0_d]
+        @def_manifold MR0_M 4 [mr0_a, mr0_b, mr0_c, mr0_d] [MR0M_B1, MR0M_B2, MR0M_B3, MR0M_B4]
 
         @test_warn r"No metric" @def_tensor MR0_T[-mr0_a, -mr0_b] MR0_M
         @test _TENSORS[:MR0_T].metric === nothing
@@ -520,7 +552,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor — metric resolution: multiple metrics (warning + first)" begin
         _clear_all_registries!()
-        @def_manifold MR2_M 4 [mr2_a, mr2_b, mr2_c, mr2_d]
+        @def_manifold MR2_M 4 [mr2_a, mr2_b, mr2_c, mr2_d] [MR2M_B1, MR2M_B2, MR2M_B3, MR2M_B4]
         @def_metric mr2_g[-mr2_a, -mr2_b] MR2_M
         @def_metric mr2_h[-mr2_a, -mr2_b] MR2_M
 
@@ -533,7 +565,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor — metric= explicit (bare and quoted)" begin
         _clear_all_registries!()
-        @def_manifold ME_M 4 [me_a, me_b, me_c, me_d]
+        @def_manifold ME_M 4 [me_a, me_b, me_c, me_d] [MEM_B1, MEM_B2, MEM_B3, MEM_B4]
         @def_metric me_g[-me_a, -me_b] ME_M
         @def_metric me_h[-me_a, -me_b] ME_M
 
@@ -548,8 +580,8 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor — metric= wrong manifold → error" begin
         _clear_all_registries!()
-        @def_manifold WM_A 4 [wm_a1, wm_a2, wm_a3, wm_a4]
-        @def_manifold WM_B 4 [wm_b1, wm_b2, wm_b3, wm_b4]
+        @def_manifold WM_A 4 [wm_a1, wm_a2, wm_a3, wm_a4] [WMA_B1, WMA_B2, WMA_B3, WMA_B4]
+        @def_manifold WM_B 4 [wm_b1, wm_b2, wm_b3, wm_b4] [WMB_B1, WMB_B2, WMB_B3, WMB_B4]
         @def_metric wm_gA[-wm_a1, -wm_a2] WM_A
 
         @test_throws ErrorException @eval begin
@@ -562,7 +594,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor — metric= unregistered symbol → error" begin
         _clear_all_registries!()
-        @def_manifold UR_M 4 [ur_a, ur_b, ur_c, ur_d]
+        @def_manifold UR_M 4 [ur_a, ur_b, ur_c, ur_d] [URM_B1, URM_B2, URM_B3, URM_B4]
 
         @test_throws ErrorException @eval begin
             using AbstractTensors
@@ -574,7 +606,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_tensor / @undef_tensor registry bookkeeping" begin
         _clear_all_registries!()
-        @def_manifold REG_M 4 [reg_a, reg_b, reg_c, reg_d]
+        @def_manifold REG_M 4 [reg_a, reg_b, reg_c, reg_d] [REGM_B1, REGM_B2, REGM_B3, REGM_B4]
 
         @test_warn r"No metric" @def_tensor REG_T[-reg_a, -reg_b] REG_M
         @test haskey(_TENSORS, :REG_T)
@@ -595,7 +627,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@undef_metric removes from _METRICS and _TENSORS" begin
         _clear_all_registries!()
-        @def_manifold UM_M 4 [um_a, um_b, um_c, um_d]
+        @def_manifold UM_M 4 [um_a, um_b, um_c, um_d] [UMM_B1, UMM_B2, UMM_B3, UMM_B4]
         @def_metric um_g[-um_a, -um_b] UM_M
 
         @test haskey(_METRICS, :um_g)
@@ -609,7 +641,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "Tensor show methods do not throw" begin
         _clear_all_registries!()
-        @def_manifold SH_M 4 [sh_a, sh_b, sh_c, sh_d]
+        @def_manifold SH_M 4 [sh_a, sh_b, sh_c, sh_d] [SHM_B1, SHM_B2, SHM_B3, SHM_B4]
         @def_metric sh_g[-sh_a, -sh_b] SH_M
         @def_tensor SH_T[-sh_a, -sh_b] SH_M
 
@@ -622,7 +654,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_metric — basic registration" begin
         _clear_all_registries!()
-        @def_manifold DFM_M 4 [dfm_a, dfm_b, dfm_c, dfm_d]
+        @def_manifold DFM_M 4 [dfm_a, dfm_b, dfm_c, dfm_d] [DFMM_B1, DFMM_B2, DFMM_B3, DFMM_B4]
         @def_metric dfm_g[-dfm_a, -dfm_b] DFM_M
 
         @test haskey(_TENSORS, :dfm_g)
@@ -644,7 +676,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_metric — print_as" begin
         _clear_all_registries!()
-        @def_manifold PG_M 4 [pg_a, pg_b, pg_c, pg_d]
+        @def_manifold PG_M 4 [pg_a, pg_b, pg_c, pg_d] [PGM_B1, PGM_B2, PGM_B3, PGM_B4]
         @def_metric pg_η[-pg_a, -pg_b] PG_M print_as=:η
         @test pg_η.print_as == :η
     end
@@ -653,7 +685,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_metric — rank guard (not 2) → error" begin
         _clear_all_registries!()
-        @def_manifold RG_M 4 [rg_a, rg_b, rg_c, rg_d]
+        @def_manifold RG_M 4 [rg_a, rg_b, rg_c, rg_d] [RGM_B1, RGM_B2, RGM_B3, RGM_B4]
 
         @test_throws ErrorException @def_metric rg_bad[-rg_a] RG_M
     end
@@ -662,7 +694,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_metric — covariant guard (contravariant slot) → error" begin
         _clear_all_registries!()
-        @def_manifold CG_M 4 [cg_a, cg_b, cg_c, cg_d]
+        @def_manifold CG_M 4 [cg_a, cg_b, cg_c, cg_d] [CGM_B1, CGM_B2, CGM_B3, CGM_B4]
 
         @test_throws ErrorException @def_metric cg_bad[-cg_a, cg_b] CG_M
     end
@@ -671,7 +703,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_metric — unsupported keyword → error" begin
         _clear_all_registries!()
-        @def_manifold UK_M 4 [uk_a, uk_b, uk_c, uk_d]
+        @def_manifold UK_M 4 [uk_a, uk_b, uk_c, uk_d] [UKM_B1, UKM_B2, UKM_B3, UKM_B4]
 
         @test_throws ErrorException macroexpand(
             @__MODULE__,
@@ -683,7 +715,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_metric — non-metric is_metric = false" begin
         _clear_all_registries!()
-        @def_manifold NM_M 4 [nm_a, nm_b, nm_c, nm_d]
+        @def_manifold NM_M 4 [nm_a, nm_b, nm_c, nm_d] [NMM_B1, NMM_B2, NMM_B3, NMM_B4]
         @def_metric nm_g[-nm_a, -nm_b] NM_M
 
         @def_tensor nm_T[-nm_a, -nm_b] NM_M metric=:nm_g
@@ -698,7 +730,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@undef_metric" begin
         _clear_all_registries!()
-        @def_manifold UMT_M 4 [umt_a, umt_b, umt_c, umt_d]
+        @def_manifold UMT_M 4 [umt_a, umt_b, umt_c, umt_d] [UMTM_B1, UMTM_B2, UMTM_B3, UMTM_B4]
         @def_metric umt_g[-umt_a, -umt_b] UMT_M
 
         @test haskey(_METRICS, :umt_g)
@@ -714,7 +746,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "metrics_of_manifold" begin
         _clear_all_registries!()
-        @def_manifold MON_M 4 [mon_a, mon_b, mon_c, mon_d]
+        @def_manifold MON_M 4 [mon_a, mon_b, mon_c, mon_d] [MONM_B1, MONM_B2, MONM_B3, MONM_B4]
 
         @test metrics_of_manifold(:MON_M) == Symbol[]
 
@@ -732,7 +764,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "metric_info / show_metrics do not throw" begin
         _clear_all_registries!()
-        @def_manifold MI_M 4 [mi_a, mi_b, mi_c, mi_d]
+        @def_manifold MI_M 4 [mi_a, mi_b, mi_c, mi_d] [MIM_B1, MIM_B2, MIM_B3, MIM_B4]
         @def_metric mi_g[-mi_a, -mi_b] MI_M
 
         @test (metric_info(mi_g); true)
@@ -744,7 +776,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "show_registry does not throw" begin
         _clear_all_registries!()
-        @def_manifold LM_M 4 [lm_a, lm_b, lm_c, lm_d]
+        @def_manifold LM_M 4 [lm_a, lm_b, lm_c, lm_d] [LMM_B1, LMM_B2, LMM_B3, LMM_B4]
 
         @test :LM_M in keys(_MANIFOLDS)
         @test (show_registry(); true)
@@ -754,7 +786,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "Full workflow: manifold → metric → tensors → symmetry" begin
         _clear_all_registries!()
-        @def_manifold FW_M 4 [fw_a, fw_b, fw_c, fw_d]
+        @def_manifold FW_M 4 [fw_a, fw_b, fw_c, fw_d] [FWM_B1, FWM_B2, FWM_B3, FWM_B4]
         @def_metric   fw_g[-fw_a, -fw_b] FW_M
 
         @def_tensor fw_R[-fw_a,-fw_b,-fw_c,-fw_d] FW_M symmetries=[riemann_symmetry()]
@@ -765,10 +797,10 @@ end
         @test fw_W.is_traceless
 
         # canonical_rep over Riemann symmetry
-        a = TensorIndex(:fw_a, :cotangentFW_M)
-        b = TensorIndex(:fw_b, :cotangentFW_M)
-        c = TensorIndex(:fw_c, :cotangentFW_M)
-        d = TensorIndex(:fw_d, :cotangentFW_M)
+        a = CoordinateIndex(:fw_a, :cotangentFW_M)
+        b = CoordinateIndex(:fw_b, :cotangentFW_M)
+        c = CoordinateIndex(:fw_c, :cotangentFW_M)
+        d = CoordinateIndex(:fw_d, :cotangentFW_M)
 
         # R[b,a,c,d] = -R[a,b,c,d]
         can, sgn = canonical_rep([b, a, c, d], fw_R.symmetries[1])
@@ -793,7 +825,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "Basis and _BASES registry" begin
         _clear_all_registries!()
-        @def_manifold BA_M 4 [ba_a, ba_b, ba_c, ba_d]
+        @def_manifold BA_M 4 [ba_a, ba_b, ba_c, ba_d] [BAM_B1, BAM_B2, BAM_B3, BAM_B4]
 
         # @def_manifold registers coordinate frames with defaults ∂/dx
         @test haskey(_BASES, (:tangentBA_M,   :coordinate))
@@ -846,7 +878,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_manifold — custom frame names" begin
         _clear_all_registries!()
-        @def_manifold CB_M 4 [cb_a, cb_b, cb_c, cb_d] natural_frame=:e natural_coframe=:θ moving_frame=:ehat moving_coframe=:θhat
+        @def_manifold CB_M 4 [cb_a, cb_b, cb_c, cb_d] [CB_A1, CB_A2, CB_A3, CB_A4] natural_frame=:e natural_coframe=:θ moving_frame=:ehat moving_coframe=:θhat
 
         @test _BASES[(:tangentCB_M,   :coordinate)].name == :e
         @test _BASES[(:cotangentCB_M, :coordinate)].name == :θ
@@ -869,7 +901,7 @@ end
         # All four frame names must be distinct → error if any duplicated
         @test_throws ErrorException macroexpand(
             @__MODULE__,
-            :(@def_manifold SAME_M 4 [s_a, s_b, s_c, s_d] natural_frame=:q natural_coframe=:q),
+            :(@def_manifold SAME_M 4 [s_a, s_b, s_c, s_d] [S_A1, S_A2, S_A3, S_A4] natural_frame=:q natural_coframe=:q),
         )
     end
 
@@ -877,7 +909,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_frame_bundle standalone" begin
         _clear_all_registries!()
-        @def_manifold FB_M 4 [fb_a, fb_b, fb_c, fb_d]
+        @def_manifold FB_M 4 [fb_a, fb_b, fb_c, fb_d] [FBM_B1, FBM_B2, FBM_B3, FBM_B4]
         # @def_manifold already registered ∂/dx (coord) and e/θ (moving)
         # for tangentFB_M/cotangentFB_M.  Test standalone for a custom bundle.
         @def_vbundle FB_E FB_M 3 [FB_A1, FB_A2, FB_A3]
@@ -908,7 +940,7 @@ end
         @test coframeFB_E.dual    == :frameFB_E
 
         # fb_edual lives in dualFB_E; index must be from FB_E (its dual)
-        # FB_A1 is TensorIndex(:FB_A1, :FB_E) → fb_edual[FB_A1] is valid
+        # FB_A1 is CoordinateIndex(:FB_A1, :FB_E) → fb_edual[FB_A1] is valid
         be = fb_edual[FB_A1]
         @test be isa BasisElement
         @test be.basis == _BASES[(:dualFB_E, :moving)]
@@ -935,21 +967,21 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "BasisElement — getindex validation" begin
         _clear_all_registries!()
-        @def_manifold BE_M 4 [be_a, be_b, be_c, be_d]
+        @def_manifold BE_M 4 [be_a, be_b, be_c, be_d] [BEM_B1, BEM_B2, BEM_B3, BEM_B4]
         # dx lives in cotangentBE_M; elements must be labeled by tangentBE_M (dual) indices
-        # be_a is TensorIndex(:be_a, :tangentBE_M) → dx[be_a] is valid
+        # be_a is CoordinateIndex(:be_a, :tangentBE_M) → dx[be_a] is valid
         be1 = dx[be_a]
         @test be1 isa BasisElement
         @test be1.basis  == Basis(:dx, :cotangentBE_M, :coordinate)
-        @test be1.index  == TensorIndex(:be_a, :tangentBE_M)
+        @test be1.index  == CoordinateIndex(:be_a, :tangentBE_M)
         @test !be1.index.is_down  # upper index (from tangentBE_M)
 
         # ∂ lives in tangentBE_M; elements must be labeled by cotangentBE_M (dual) indices
-        # -be_a is TensorIndex(:be_a, :cotangentBE_M) → ∂[-be_a] is valid
+        # -be_a is CoordinateIndex(:be_a, :cotangentBE_M) → ∂[-be_a] is valid
         be2 = ∂[-be_a]
         @test be2 isa BasisElement
         @test be2.basis  == Basis(:∂, :tangentBE_M, :coordinate)
-        @test be2.index  == TensorIndex(:be_a, :cotangentBE_M)
+        @test be2.index  == CoordinateIndex(:be_a, :cotangentBE_M)
         @test be2.index.is_down   # lower index (from cotangentBE_M)
 
         # Wrong vbundle → error:
@@ -979,7 +1011,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "basis_expansion — covariant tensor" begin
         _clear_all_registries!()
-        @def_manifold COV_M 4 [cov_a, cov_b, cov_c, cov_d]
+        @def_manifold COV_M 4 [cov_a, cov_b, cov_c, cov_d] [COVM_B1, COVM_B2, COVM_B3, COVM_B4]
         @def_metric cov_g[-cov_a, -cov_b] COV_M
         @def_tensor COV_T[-cov_a, -cov_b] COV_M
 
@@ -1016,7 +1048,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "basis_expansion — contravariant tensor" begin
         _clear_all_registries!()
-        @def_manifold CTR_M 4 [ctr_a, ctr_b, ctr_c, ctr_d]
+        @def_manifold CTR_M 4 [ctr_a, ctr_b, ctr_c, ctr_d] [CTRM_B1, CTRM_B2, CTRM_B3, CTRM_B4]
         @def_tensor CTR_T[ctr_a, ctr_b] CTR_M
 
         te = CTR_T[ctr_a, ctr_b]
@@ -1036,7 +1068,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "basis_expansion — mixed tensor" begin
         _clear_all_registries!()
-        @def_manifold MX_M 4 [mx_a, mx_b, mx_c, mx_d]
+        @def_manifold MX_M 4 [mx_a, mx_b, mx_c, mx_d] [MXM_B1, MXM_B2, MXM_B3, MXM_B4]
         @def_tensor MX_T[mx_a, -mx_b] MX_M
 
         te = MX_T[mx_a, -mx_b]
@@ -1058,7 +1090,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "VBundle.bases virtual property" begin
         _clear_all_registries!()
-        @def_manifold VP_M 4 [vp_a, vp_b, vp_c, vp_d]
+        @def_manifold VP_M 4 [vp_a, vp_b, vp_c, vp_d] [VPM_B1, VPM_B2, VPM_B3, VPM_B4]
 
         @test tangentVP_M.bases   isa Vector{Basis}
         @test cotangentVP_M.bases isa Vector{Basis}
@@ -1069,6 +1101,10 @@ end
         @test tangentVP_M.bases[1].type    == :coordinate
         @test tangentVP_M.bases[2].name    == :e
         @test tangentVP_M.bases[2].type    == :moving
+
+        @test length(tangentVP_M.basis_indices) == 4
+        @test tangentVP_M.basis_indices[1].symbol == :VPM_B1
+        @test :basis_indices in propertynames(tangentVP_M)
         @test cotangentVP_M.bases[1].name  == :dx
         @test cotangentVP_M.bases[1].type  == :coordinate
         @test cotangentVP_M.bases[2].name  == :θ
@@ -1100,7 +1136,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@undef_manifold cleans _BASES and _FRAME_BUNDLES" begin
         _clear_all_registries!()
-        @def_manifold UM_BX_M 4 [umbx_a, umbx_b, umbx_c, umbx_d]
+        @def_manifold UM_BX_M 4 [umbx_a, umbx_b, umbx_c, umbx_d] [UMBXM_B1, UMBXM_B2, UMBXM_B3, UMBXM_B4]
 
         @test haskey(_BASES, (:tangentUM_BX_M,   :coordinate))
         @test haskey(_BASES, (:cotangentUM_BX_M, :coordinate))
@@ -1122,7 +1158,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "@def_vbundle — no basis= / cobasis= kwargs (removed)" begin
         _clear_all_registries!()
-        @def_manifold VBF_M 4 [vbf_a, vbf_b, vbf_c, vbf_d]
+        @def_manifold VBF_M 4 [vbf_a, vbf_b, vbf_c, vbf_d] [VBFM_B1, VBFM_B2, VBFM_B3, VBFM_B4]
         @def_vbundle VBF_E VBF_M 3 [VBF_A1, VBF_A2, VBF_A3]
 
         # No coordinate or moving frames registered for standalone vbundle
@@ -1142,7 +1178,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "FrameBundle struct and registry" begin
         _clear_all_registries!()
-        @def_manifold FR_M 4 [fr_a, fr_b, fr_c, fr_d]
+        @def_manifold FR_M 4 [fr_a, fr_b, fr_c, fr_d] [FRM_B1, FRM_B2, FRM_B3, FRM_B4]
 
         # @def_manifold binds frameM, coframeM, e, θ automatically
         @test frameFR_M   isa FrameBundle
@@ -1196,7 +1232,7 @@ end
     # ─────────────────────────────────────────────────────────────────
     @testset "basis_expansion — frame=:moving" begin
         _clear_all_registries!()
-        @def_manifold MV_M 4 [mv_a, mv_b, mv_c, mv_d]
+        @def_manifold MV_M 4 [mv_a, mv_b, mv_c, mv_d] [MVM_B1, MVM_B2, MVM_B3, MVM_B4]
         @def_metric mv_g[-mv_a, -mv_b] MV_M
         @def_tensor MV_T[-mv_a, -mv_b] MV_M
 

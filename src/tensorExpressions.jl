@@ -2,10 +2,10 @@
 # tensorExpressions.jl — AbstractTensors.jl
 #
 # A TensorExpression is a Tensor (schema) applied to a specific list of
-# TensorIndex objects. It is the REPL/notebook object you interact with:
+# AbstractIndex objects. It is the REPL/notebook object you interact with:
 #
 #   F[down(a1), down(a2)]   — explicit construction
-#   F[-a1, -a2]             — sugar: -a1 calls flip on TensorIndex
+#   F[-a1, -a2]             — sugar: -a1 calls flip on AbstractIndex
 #   F[a1, a2]               — also valid: contravariant expression
 #   g[a1, a2]               — valid: contravariant metric (raised by implicit g)
 #
@@ -39,13 +39,13 @@
     TensorExpression
 
 A [`Tensor`](@ref) (definition-level schema) applied to a concrete list of
-[`TensorIndex`](@ref) objects, representing one occurrence in an algebraic
+[`AbstractIndex`](@ref) objects, representing one occurrence in an algebraic
 expression.
 
 Constructed via `getindex` on a [`Tensor`](@ref):
 
-    F[down(a1), down(a2)]   # explicit TensorIndex arguments
-    F[-a1, -a2]             # sugar: -a1 = flip(a1) via Base.:- on TensorIndex
+    F[down(a1), down(a2)]   # explicit AbstractIndex arguments
+    F[-a1, -a2]             # sugar: -a1 = flip(a1) via Base.:- on AbstractIndex
     F[a1, -a2]              # mixed: a1 contravariant, -a2 covariant
     g[a1, a2]               # valid: contravariant metric expression
 
@@ -67,7 +67,7 @@ symmetry reduction is performed at construction time.
 """
 struct TensorExpression
     tensor::Tensor
-    indices::Vector{TensorIndex}
+    indices::Vector{AbstractIndex}
 end
 
 
@@ -76,11 +76,11 @@ end
 # =========================================
 
 # Accepts the forms a slot argument can take at runtime:
-#   TensorIndex  — used directly (includes -a1 / +a1 after unary ops)
+#   AbstractIndex  — used directly (includes -a1 / +a1 after unary ops)
 #   Symbol       — treated as contravariant (up); must be registered
-# Note: IndexSymbol no longer exists; all index variables in scope are TensorIndex.
-function _parse_index_arg(arg)::TensorIndex
-    if arg isa TensorIndex
+# Note: IndexSymbol no longer exists; index variables in scope are CoordinateIndex or BasisIndex.
+function _parse_index_arg(arg)::AbstractIndex
+    if arg isa AbstractIndex
         return arg
     elseif arg isa Symbol
         is_index_registered(arg) ||
@@ -93,7 +93,7 @@ function _parse_index_arg(arg)::TensorIndex
         error(
             "TensorExpression: cannot interpret slot argument $(repr(arg)) " *
             "of type $(typeof(arg)). " *
-            "Use -a1 (covariant) or a1 (contravariant) TensorIndex values."
+            "Use -a1 (covariant) or a1 (contravariant) index values."
         )
     end
 end
@@ -109,9 +109,9 @@ end
 Construct a [`TensorExpression`](@ref) by applying `T` to the given indices.
 
 Accepted argument types per slot:
-- [`TensorIndex`](@ref)       — used directly (contravariant or covariant)
-- `-`[`TensorIndex`](@ref)    — covariant via `flip`; unary `-` on `TensorIndex`
-- `+`[`TensorIndex`](@ref)    — contravariant (identity); unary `+` on `TensorIndex`
+- [`AbstractIndex`](@ref)       — used directly (contravariant or covariant)
+- `-`[`AbstractIndex`](@ref)    — covariant via `flip`; unary `-` on `AbstractIndex`
+- `+`[`AbstractIndex`](@ref)    — contravariant (identity); unary `+` on `AbstractIndex`
 
 **Validated:**
 1. **Arity** — `length(idxs) == T.rank`
@@ -123,7 +123,7 @@ Accepted argument types per slot:
 
 # Examples
 ```julia
-@def_manifold M 4 [a1, a2, a3, a4]
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @def_metric g[-a1, -a2] M
 @def_tensor F[-a1, -a2] M symmetries=[antisymmetric(2)]
 
@@ -144,8 +144,8 @@ function Base.getindex(T::Tensor, idxs...)
             "but $n index argument(s) were given."
         )
 
-    # Step 1: parse each argument to a TensorIndex.
-    ti = Vector{TensorIndex}(undef, n)
+    # Step 1: parse each argument to an AbstractIndex.
+    ti = Vector{AbstractIndex}(undef, n)
     for i in 1:n
         ti[i] = _parse_index_arg(idxs[i])
     end
@@ -257,7 +257,7 @@ function _map_chars(sym::Symbol, table::Dict{Char,Char})
     join(get(table, c, c) for c in string(sym))
 end
 
-function _is_covariant_idx(idx::TensorIndex)
+function _is_covariant_idx(idx::AbstractIndex)
     haskey(_VBUNDLES, idx.vbundle) && is_down(idx)
 end
 
@@ -269,7 +269,7 @@ Each element is `(is_covariant, [sym1, sym2, ...])`.
 
     [-a1, -a2, a3]  →  [(true,[:a1,:a2]), (false,[:a3])]
 """
-function _group_index_runs(indices::Vector{TensorIndex})
+function _group_index_runs(indices::Vector{AbstractIndex})
     isempty(indices) && return Tuple{Bool,Vector{Symbol}}[]
     runs = Tuple{Bool,Vector{Symbol}}[]
     cur_cov = _is_covariant_idx(indices[1])
