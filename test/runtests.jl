@@ -15,6 +15,8 @@ function _clear_all_registries!()
     empty!(_INDICES)
     empty!(_TENSORS)
     empty!(_METRICS)
+    empty!(_BASES)
+    empty!(_FRAME_BUNDLES)
 end
 
 
@@ -785,6 +787,432 @@ end
         @def_tensor fw_mixed[fw_a, -fw_b] FW_M
         @test fw_mixed.slots == [:tangentFW_M, :cotangentFW_M]
         @test fw_mixed.metric == :fw_g
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "Basis and _BASES registry" begin
+        _clear_all_registries!()
+        @def_manifold BA_M 4 [ba_a, ba_b, ba_c, ba_d]
+
+        # @def_manifold registers coordinate frames with defaults ∂/dx
+        @test haskey(_BASES, (:tangentBA_M,   :coordinate))
+        @test haskey(_BASES, (:cotangentBA_M, :coordinate))
+        # ... and moving frames with defaults e/θ
+        @test haskey(_BASES, (:tangentBA_M,   :moving))
+        @test haskey(_BASES, (:cotangentBA_M, :moving))
+
+        tb_basis  = _BASES[(:tangentBA_M,   :coordinate)]
+        ctb_basis = _BASES[(:cotangentBA_M, :coordinate)]
+
+        @test tb_basis  isa Basis
+        @test ctb_basis isa Basis
+        @test tb_basis.name    == :∂
+        @test tb_basis.type    == :coordinate
+        @test tb_basis.vbundle == :tangentBA_M
+        @test ctb_basis.name    == :dx
+        @test ctb_basis.type    == :coordinate
+        @test ctb_basis.vbundle == :cotangentBA_M
+
+        # Variables ∂, dx, e, θ all bound in scope
+        @test ∂  isa Basis
+        @test dx isa Basis
+        @test e  isa Basis
+        @test θ  isa Basis
+        @test ∂  == tb_basis
+        @test dx == ctb_basis
+        @test e.type  == :moving
+        @test θ.type  == :moving
+
+        # basis_for_vbundle accessor (default type=:coordinate)
+        @test basis_for_vbundle(:tangentBA_M)                    == tb_basis
+        @test basis_for_vbundle(:cotangentBA_M)                  == ctb_basis
+        @test basis_for_vbundle(:tangentBA_M;   type=:moving)    == _BASES[(:tangentBA_M,   :moving)]
+        @test basis_for_vbundle(:cotangentBA_M; type=:moving)    == _BASES[(:cotangentBA_M, :moving)]
+        @test_throws ErrorException basis_for_vbundle(:no_such_bundle)
+
+        # Equality and hashing
+        @test Basis(:∂, :tangentBA_M, :coordinate) == Basis(:∂, :tangentBA_M, :coordinate)
+        @test Basis(:∂, :tangentBA_M, :coordinate) != Basis(:dx, :tangentBA_M, :coordinate)
+        @test Basis(:∂, :tangentBA_M, :coordinate) != Basis(:∂, :tangentBA_M, :moving)
+        @test hash(Basis(:dx, :cotangentBA_M, :coordinate)) ==
+              hash(Basis(:dx, :cotangentBA_M, :coordinate))
+
+        # show does not throw
+        @test (repr(tb_basis); true)
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "@def_manifold — custom frame names" begin
+        _clear_all_registries!()
+        @def_manifold CB_M 4 [cb_a, cb_b, cb_c, cb_d] natural_frame=:e natural_coframe=:θ moving_frame=:ehat moving_coframe=:θhat
+
+        @test _BASES[(:tangentCB_M,   :coordinate)].name == :e
+        @test _BASES[(:cotangentCB_M, :coordinate)].name == :θ
+        @test _BASES[(:tangentCB_M,   :moving)].name     == :ehat
+        @test _BASES[(:cotangentCB_M, :moving)].name     == :θhat
+
+        @test e     isa Basis
+        @test θ     isa Basis
+        @test ehat  isa Basis
+        @test θhat  isa Basis
+        @test e.type    == :coordinate
+        @test θ.type    == :coordinate
+        @test ehat.type == :moving
+        @test θhat.type == :moving
+
+        # FrameBundle variables bound in scope
+        @test frameCB_M   isa FrameBundle
+        @test coframeCB_M isa FrameBundle
+
+        # All four frame names must be distinct → error if any duplicated
+        @test_throws ErrorException macroexpand(
+            @__MODULE__,
+            :(@def_manifold SAME_M 4 [s_a, s_b, s_c, s_d] natural_frame=:q natural_coframe=:q),
+        )
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "@def_frame_bundle standalone" begin
+        _clear_all_registries!()
+        @def_manifold FB_M 4 [fb_a, fb_b, fb_c, fb_d]
+        # @def_manifold already registered ∂/dx (coord) and e/θ (moving)
+        # for tangentFB_M/cotangentFB_M.  Test standalone for a custom bundle.
+        @def_vbundle FB_E FB_M 3 [FB_A1, FB_A2, FB_A3]
+
+        # 4-arg form: frame_name vbundle_name basis_name cobasis_name
+        @def_frame_bundle frameFB_E FB_E fb_e fb_edual
+
+        @test haskey(_BASES, (:FB_E,    :moving))
+        @test haskey(_BASES, (:dualFB_E, :moving))
+        @test _BASES[(:FB_E,    :moving)].name == :fb_e
+        @test _BASES[(:dualFB_E,:moving)].name == :fb_edual
+
+        @test fb_e     isa Basis
+        @test fb_edual isa Basis
+        @test fb_e.type    == :moving
+        @test fb_edual.type == :moving
+
+        # FrameBundle variables bound in scope
+        @test frameFB_E   isa FrameBundle
+        @test coframeFB_E isa FrameBundle
+        @test haskey(_FRAME_BUNDLES, :frameFB_E)
+        @test haskey(_FRAME_BUNDLES, :coframeFB_E)
+
+        @test frameFB_E.vbundle == :FB_E
+        @test frameFB_E.dual    == :coframeFB_E
+        @test frameFB_E.basis   == fb_e
+        @test coframeFB_E.vbundle == :dualFB_E
+        @test coframeFB_E.dual    == :frameFB_E
+
+        # fb_edual lives in dualFB_E; index must be from FB_E (its dual)
+        # FB_A1 is TensorIndex(:FB_A1, :FB_E) → fb_edual[FB_A1] is valid
+        be = fb_edual[FB_A1]
+        @test be isa BasisElement
+        @test be.basis == _BASES[(:dualFB_E, :moving)]
+        @test be.index.vbundle == :FB_E
+
+        # fb_e lives in FB_E; index must be from dualFB_E → use -FB_A1
+        be2 = fb_e[-FB_A1]
+        @test be2 isa BasisElement
+        @test be2.basis == _BASES[(:FB_E, :moving)]
+        @test be2.index.vbundle == :dualFB_E
+
+        # FrameBundle show does not throw
+        @test (repr(frameFB_E); true)
+        @test (repr("text/html", frameFB_E); true)
+
+        # Argument validation: basis_name and cobasis_name must differ
+        @test_throws ErrorException macroexpand(
+            @__MODULE__,
+            :(@def_frame_bundle frameFB_E2 FB_E same_name same_name),
+        )
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "BasisElement — getindex validation" begin
+        _clear_all_registries!()
+        @def_manifold BE_M 4 [be_a, be_b, be_c, be_d]
+        # dx lives in cotangentBE_M; elements must be labeled by tangentBE_M (dual) indices
+        # be_a is TensorIndex(:be_a, :tangentBE_M) → dx[be_a] is valid
+        be1 = dx[be_a]
+        @test be1 isa BasisElement
+        @test be1.basis  == Basis(:dx, :cotangentBE_M, :coordinate)
+        @test be1.index  == TensorIndex(:be_a, :tangentBE_M)
+        @test !be1.index.is_down  # upper index (from tangentBE_M)
+
+        # ∂ lives in tangentBE_M; elements must be labeled by cotangentBE_M (dual) indices
+        # -be_a is TensorIndex(:be_a, :cotangentBE_M) → ∂[-be_a] is valid
+        be2 = ∂[-be_a]
+        @test be2 isa BasisElement
+        @test be2.basis  == Basis(:∂, :tangentBE_M, :coordinate)
+        @test be2.index  == TensorIndex(:be_a, :cotangentBE_M)
+        @test be2.index.is_down   # lower index (from cotangentBE_M)
+
+        # Wrong vbundle → error:
+        # dx lives in cotangentBE_M, dual is tangentBE_M → requires tangentBE_M index
+        # -be_a is cotangentBE_M, NOT tangentBE_M → invalid
+        @test_throws ErrorException dx[-be_a]
+        # ∂ lives in tangentBE_M, dual is cotangentBE_M → requires cotangentBE_M index
+        # be_a is tangentBE_M, NOT cotangentBE_M → invalid
+        @test_throws ErrorException ∂[be_a]
+
+        # Equality and hashing
+        @test be1 == dx[be_a]
+        @test hash(be1) == hash(dx[be_a])
+        @test be1 != be2
+
+        # Basis type field in assertions
+        @test be1.basis == Basis(:dx, :cotangentBE_M, :coordinate)
+        @test be2.basis == Basis(:∂,  :tangentBE_M,   :coordinate)
+
+        # show does not throw
+        @test (repr(be1); true)
+        @test (repr("text/latex", be1); true)
+        @test (repr("text/html",  be1); true)
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "basis_expansion — covariant tensor" begin
+        _clear_all_registries!()
+        @def_manifold COV_M 4 [cov_a, cov_b, cov_c, cov_d]
+        @def_metric cov_g[-cov_a, -cov_b] COV_M
+        @def_tensor COV_T[-cov_a, -cov_b] COV_M
+
+        # Via TensorExpression
+        te  = COV_T[-cov_a, -cov_b]
+        bx  = basis_expansion(te)
+
+        @test bx isa BasisExpansion
+        @test bx.component === te
+        @test length(bx.basis_elements) == 2
+
+        be1, be2 = bx.basis_elements
+        # Covariant slot → cotangentCOV_M → basis is dx, index from tangentCOV_M
+        @test be1.basis.name    == :dx
+        @test be1.index.symbol  == :cov_a
+        @test !be1.index.is_down   # upper index (from tangentCOV_M)
+
+        @test be2.basis.name    == :dx
+        @test be2.index.symbol  == :cov_b
+        @test !be2.index.is_down
+
+        # Via Tensor directly
+        bx2 = basis_expansion(COV_T)
+        @test bx2 isa BasisExpansion
+        @test length(bx2.basis_elements) == 2
+
+        # show does not throw
+        @test (repr(bx); true)
+        @test (repr("text/latex", bx); true)
+        @test (repr("text/html",  bx); true)
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "basis_expansion — contravariant tensor" begin
+        _clear_all_registries!()
+        @def_manifold CTR_M 4 [ctr_a, ctr_b, ctr_c, ctr_d]
+        @def_tensor CTR_T[ctr_a, ctr_b] CTR_M
+
+        te = CTR_T[ctr_a, ctr_b]
+        bx = basis_expansion(te)
+
+        @test length(bx.basis_elements) == 2
+        be1, be2 = bx.basis_elements
+
+        # Contravariant slot → tangentCTR_M → basis is ∂, index from cotangentCTR_M
+        @test be1.basis.name   == :∂
+        @test be1.index.is_down    # lower index (from cotangentCTR_M)
+        @test be2.basis.name   == :∂
+        @test be2.index.is_down
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "basis_expansion — mixed tensor" begin
+        _clear_all_registries!()
+        @def_manifold MX_M 4 [mx_a, mx_b, mx_c, mx_d]
+        @def_tensor MX_T[mx_a, -mx_b] MX_M
+
+        te = MX_T[mx_a, -mx_b]
+        bx = basis_expansion(te)
+
+        @test length(bx.basis_elements) == 2
+        be1, be2 = bx.basis_elements
+
+        # First slot: contravariant → tangentMX_M → ∂ with lower index
+        @test be1.basis.name  == :∂
+        @test be1.index.is_down
+
+        # Second slot: covariant → cotangentMX_M → dx with upper index
+        @test be2.basis.name  == :dx
+        @test !be2.index.is_down
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "VBundle.basis virtual property" begin
+        _clear_all_registries!()
+        @def_manifold VP_M 4 [vp_a, vp_b, vp_c, vp_d]
+
+        @test tangentVP_M.basis   isa Basis
+        @test cotangentVP_M.basis isa Basis
+
+        @test tangentVP_M.basis.name    == :∂
+        @test cotangentVP_M.basis.name  == :dx
+        @test tangentVP_M.basis.vbundle   == :tangentVP_M
+        @test cotangentVP_M.basis.vbundle == :cotangentVP_M
+
+        # :basis in propertynames
+        @test :basis in propertynames(tangentVP_M)
+        @test :basis in propertynames(cotangentVP_M)
+
+        # Bundle with no frame registered → nothing
+        @def_vbundle VP_E VP_M 2 [VP_v1, VP_v2]   # no basis= kwarg
+        @test VP_E.basis === nothing
+        @test dualVP_E.basis === nothing
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "@undef_manifold cleans _BASES and _FRAME_BUNDLES" begin
+        _clear_all_registries!()
+        @def_manifold UM_BX_M 4 [umbx_a, umbx_b, umbx_c, umbx_d]
+
+        @test haskey(_BASES, (:tangentUM_BX_M,   :coordinate))
+        @test haskey(_BASES, (:cotangentUM_BX_M, :coordinate))
+        @test haskey(_BASES, (:tangentUM_BX_M,   :moving))
+        @test haskey(_BASES, (:cotangentUM_BX_M, :moving))
+        @test haskey(_FRAME_BUNDLES, :frameUM_BX_M)
+        @test haskey(_FRAME_BUNDLES, :coframeUM_BX_M)
+
+        @undef_manifold UM_BX_M
+        @test !haskey(_BASES, (:tangentUM_BX_M,   :coordinate))
+        @test !haskey(_BASES, (:cotangentUM_BX_M, :coordinate))
+        @test !haskey(_BASES, (:tangentUM_BX_M,   :moving))
+        @test !haskey(_BASES, (:cotangentUM_BX_M, :moving))
+        @test !haskey(_FRAME_BUNDLES, :frameUM_BX_M)
+        @test !haskey(_FRAME_BUNDLES, :coframeUM_BX_M)
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "@def_vbundle — no basis= / cobasis= kwargs (removed)" begin
+        _clear_all_registries!()
+        @def_manifold VBF_M 4 [vbf_a, vbf_b, vbf_c, vbf_d]
+        @def_vbundle VBF_E VBF_M 3 [VBF_A1, VBF_A2, VBF_A3]
+
+        # No coordinate or moving frames registered for standalone vbundle
+        @test !haskey(_BASES, (:VBF_E,    :coordinate))
+        @test !haskey(_BASES, (:dualVBF_E,:coordinate))
+        @test VBF_E.basis    === nothing
+        @test dualVBF_E.basis === nothing
+
+        # basis= kwarg is no longer supported → error at macroexpand time
+        @test_throws ErrorException macroexpand(
+            @__MODULE__,
+            :(@def_vbundle VBF_E2 VBF_M 3 [VBF_B1, VBF_B2, VBF_B3] basis=:myframe),
+        )
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "FrameBundle struct and registry" begin
+        _clear_all_registries!()
+        @def_manifold FR_M 4 [fr_a, fr_b, fr_c, fr_d]
+
+        # @def_manifold binds frameM, coframeM, e, θ automatically
+        @test frameFR_M   isa FrameBundle
+        @test coframeFR_M isa FrameBundle
+        @test haskey(_FRAME_BUNDLES, :frameFR_M)
+        @test haskey(_FRAME_BUNDLES, :coframeFR_M)
+
+        @test frameFR_M.name    == :frameFR_M
+        @test frameFR_M.vbundle == :tangentFR_M
+        @test frameFR_M.dual    == :coframeFR_M
+        @test frameFR_M.basis   isa Basis
+        @test frameFR_M.basis.name == :e
+        @test frameFR_M.basis.type == :moving
+
+        @test coframeFR_M.name    == :coframeFR_M
+        @test coframeFR_M.vbundle == :cotangentFR_M
+        @test coframeFR_M.dual    == :frameFR_M
+        @test coframeFR_M.basis.name == :θ
+        @test coframeFR_M.basis.type == :moving
+
+        # e and θ bound as Basis (moving)
+        @test e isa Basis
+        @test θ isa Basis
+        @test e.type == :moving
+        @test θ.type == :moving
+
+        # Moving frame accessible via _BASES with :moving key
+        @test _BASES[(:tangentFR_M,   :moving)] == e
+        @test _BASES[(:cotangentFR_M, :moving)] == θ
+
+        # Coordinate frame still accessible
+        @test ∂  isa Basis
+        @test dx isa Basis
+        @test ∂.type  == :coordinate
+        @test dx.type == :coordinate
+
+        # Equality and hashing for FrameBundle
+        fb_copy = FrameBundle(:frameFR_M, :tangentFR_M, :coframeFR_M, e)
+        @test frameFR_M == fb_copy
+        @test hash(frameFR_M) == hash(fb_copy)
+
+        # show does not throw
+        @test (repr(frameFR_M); true)
+        @test (repr("text/html", frameFR_M); true)
+
+        # propertynames
+        @test :basis in propertynames(frameFR_M)
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
+    @testset "basis_expansion — frame=:moving" begin
+        _clear_all_registries!()
+        @def_manifold MV_M 4 [mv_a, mv_b, mv_c, mv_d]
+        @def_metric mv_g[-mv_a, -mv_b] MV_M
+        @def_tensor MV_T[-mv_a, -mv_b] MV_M
+
+        te = MV_T[-mv_a, -mv_b]
+
+        # Default (coordinate)
+        bx_coord = basis_expansion(te)
+        @test bx_coord.basis_elements[1].basis.name == :dx
+        @test bx_coord.basis_elements[1].basis.type == :coordinate
+
+        # Moving frame
+        bx_mov = basis_expansion(te; frame=:moving)
+        @test bx_mov isa BasisExpansion
+        @test bx_mov.component === te
+        @test length(bx_mov.basis_elements) == 2
+
+        be1, be2 = bx_mov.basis_elements
+        @test be1.basis.name   == :θ
+        @test be1.basis.type   == :moving
+        @test be2.basis.name   == :θ
+        @test !be1.index.is_down  # upper index (from tangentMV_M)
+
+        # Via Tensor overload
+        bx_t = basis_expansion(MV_T; frame=:moving)
+        @test bx_t isa BasisExpansion
+        @test bx_t.basis_elements[1].basis.type == :moving
+
+        # show does not throw for moving expansion
+        @test (repr(bx_mov); true)
+        @test (repr("text/latex", bx_mov); true)
+        @test (repr("text/html",  bx_mov); true)
+
+        # Unknown frame type → error
+        @test_throws ErrorException basis_expansion(te; frame=:unknown_frame)
     end
 
 end # @testset "AbstractTensors.jl"

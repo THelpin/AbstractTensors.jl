@@ -215,9 +215,155 @@ Register `name` in `_MANIFOLDS`, the tangent and cotangent bundles in
 @def_manifold M d [b1, b2, b3, b4]   # parametric dimension
 ```
 """
-macro def_manifold(name, dim, indices)
+# ── shared helpers for inline frame registration ──────────────────────────────
+
+# Generate an inline code block that registers a COORDINATE frame in _BASES
+# (key: (vbundle, :coordinate)) and binds the basis variables in the CALLER's
+# scope (via esc at the calling macro's level).
+#
+# Called at MACRO EXPANSION TIME from within @def_manifold.
+# Using a plain function (not a nested macro) ensures that esc() is relative to
+# the outermost macro call site, correctly binding variables in the user's scope.
+#
+# primal_q    : QuoteNode for the primal vbundle (e.g. QuoteNode(:tangentM))
+# dual_q      : QuoteNode for the dual   vbundle (e.g. QuoteNode(:cotangentM))
+# basis_sym   : Symbol to bind for the primal coordinate frame (e.g. :∂)
+# cobasis_sym : Symbol to bind for the dual   coordinate frame (e.g. :dx)
+function _gen_coord_frame_registration_expr(
+    primal_q    :: QuoteNode,
+    dual_q      :: QuoteNode,
+    basis_sym   :: Symbol,
+    cobasis_sym :: Symbol,
+)
+    bq          = QuoteNode(basis_sym)
+    cq          = QuoteNode(cobasis_sym)
+    primal_key  = QuoteNode((primal_q.value, :coordinate))
+    dual_key    = QuoteNode((dual_q.value,   :coordinate))
+    quote
+        _BASES[$(primal_key)] = Basis($(bq), $(primal_q), :coordinate)
+        _BASES[$(dual_key)]   = Basis($(cq), $(dual_q),   :coordinate)
+        $(esc(basis_sym))     = _BASES[$(primal_key)]
+        $(esc(cobasis_sym))   = _BASES[$(dual_key)]
+        println(
+            "Defined vector bundle $($(primal_q)) with coordinate basis $($(bq)) " *
+            "and its dual $($(dual_q)) with coordinate basis $($(cq))"
+        )
+        nothing
+    end
+end
+
+# Generate an inline code block that registers a MOVING frame in _BASES
+# (key: (vbundle, :moving)), creates FrameBundle structs, and binds all four
+# variables in the CALLER's scope via esc.
+#
+# frame_name   : Symbol for the primal frame bundle (e.g. :frameM)
+# coframe_name : Symbol for the dual   frame bundle (e.g. :coframeM)
+# primal_q     : QuoteNode for the primal vbundle (e.g. QuoteNode(:tangentM))
+# dual_q       : QuoteNode for the dual   vbundle (e.g. QuoteNode(:cotangentM))
+# basis_sym    : Symbol to bind for the primal moving frame (e.g. :e)
+# cobasis_sym  : Symbol to bind for the dual   moving frame (e.g. :θ)
+# manifold_q   : QuoteNode for the manifold name (for the print message)
+function _gen_moving_frame_registration_expr(
+    frame_name   :: Symbol,
+    coframe_name :: Symbol,
+    primal_q     :: QuoteNode,
+    dual_q       :: QuoteNode,
+    basis_sym    :: Symbol,
+    cobasis_sym  :: Symbol,
+    manifold_q   :: QuoteNode,
+)
+    bq           = QuoteNode(basis_sym)
+    cq           = QuoteNode(cobasis_sym)
+    fn_q         = QuoteNode(frame_name)
+    cfn_q        = QuoteNode(coframe_name)
+    primal_key   = QuoteNode((primal_q.value, :moving))
+    dual_key     = QuoteNode((dual_q.value,   :moving))
+    quote
+        _BASES[$(primal_key)] = Basis($(bq), $(primal_q), :moving)
+        _BASES[$(dual_key)]   = Basis($(cq), $(dual_q),   :moving)
+
+        _FRAME_BUNDLES[$(fn_q)]  = FrameBundle($(fn_q),  $(primal_q), $(cfn_q), _BASES[$(primal_key)])
+        _FRAME_BUNDLES[$(cfn_q)] = FrameBundle($(cfn_q), $(dual_q),   $(fn_q),  _BASES[$(dual_key)])
+
+        $(esc(frame_name))    = _FRAME_BUNDLES[$(fn_q)]
+        $(esc(coframe_name))  = _FRAME_BUNDLES[$(cfn_q)]
+        $(esc(basis_sym))     = _BASES[$(primal_key)]
+        $(esc(cobasis_sym))   = _BASES[$(dual_key)]
+
+        println(
+            "Defined frame bundle $($(fn_q)) (moving frame $($(bq))) " *
+            "and coframe bundle $($(cfn_q)) (moving coframe $($(cq))) " *
+            "over $($(manifold_q))"
+        )
+        nothing
+    end
+end
+
+# ── kwargs parser for @def_manifold ──────────────────────────────────────────
+
+# Parse natural_frame=, natural_coframe=, moving_frame=, moving_coframe= kwargs.
+# Returns (nat_frame::Symbol, nat_coframe::Symbol, mov_frame::Symbol, mov_coframe::Symbol)
+# with defaults :∂, :dx, :e, :θ.
+function _parse_manifold_kwargs(kwargs)
+    nat_frame    = :∂    # coordinate frame for tangent bundle
+    nat_coframe  = :dx   # coordinate frame for cotangent bundle
+    mov_frame    = :e    # moving frame for tangent bundle
+    mov_coframe  = :θ    # moving frame for cotangent bundle
+
+    for kw in kwargs
+        Meta.isexpr(kw, :(=), 2) ||
+            error("@def_manifold: expected keyword=value argument, got: $kw")
+        k, v = kw.args
+
+        sym_val = if v isa Symbol
+            v
+        elseif v isa QuoteNode && v.value isa Symbol
+            v.value
+        else
+            nothing
+        end
+
+        if k === :natural_frame
+            sym_val !== nothing ||
+                error("@def_manifold: natural_frame must be a symbol, got $v")
+            nat_frame = sym_val
+        elseif k === :natural_coframe
+            sym_val !== nothing ||
+                error("@def_manifold: natural_coframe must be a symbol, got $v")
+            nat_coframe = sym_val
+        elseif k === :moving_frame
+            sym_val !== nothing ||
+                error("@def_manifold: moving_frame must be a symbol, got $v")
+            mov_frame = sym_val
+        elseif k === :moving_coframe
+            sym_val !== nothing ||
+                error("@def_manifold: moving_coframe must be a symbol, got $v")
+            mov_coframe = sym_val
+        else
+            error(
+                "@def_manifold: unknown keyword :$k. " *
+                "Supported: natural_frame, natural_coframe, moving_frame, moving_coframe."
+            )
+        end
+    end
+
+    # Validate uniqueness across all four names
+    all_names = (nat_frame, nat_coframe, mov_frame, mov_coframe)
+    length(unique(all_names)) == 4 ||
+        error(
+            "@def_manifold: all four frame names must be distinct; got $all_names"
+        )
+
+    return nat_frame, nat_coframe, mov_frame, mov_coframe
+end
+
+macro def_manifold(name, dim, indices, kwargs...)
     name isa Symbol ||
         error("@def_manifold: first argument must be a symbol, got $name")
+
+    # Parse kwargs — returns (nat_frame, nat_coframe, mov_frame, mov_coframe)
+    nat_frame, nat_coframe, mov_frame, mov_coframe = _parse_manifold_kwargs(kwargs)
+
     dim_expr = if dim isa Integer
         dim
     elseif dim isa Symbol
@@ -227,6 +373,8 @@ macro def_manifold(name, dim, indices)
     end
     tangent_name     = Symbol("tangent",   name)
     cotangent_name   = Symbol("cotangent", name)
+    frame_name       = Symbol("frame",   name)
+    coframe_name     = Symbol("coframe", name)
     name_symbol      = QuoteNode(name)
     tangent_symbol   = QuoteNode(tangent_name)
     cotangent_symbol = QuoteNode(cotangent_name)
@@ -236,20 +384,31 @@ macro def_manifold(name, dim, indices)
         # ── Guard: clean up stale registry entries if redefining ─────────
         if haskey(_MANIFOLDS, $(name_symbol))
             @warn "Manifold $($(name_symbol)) is already defined. Redefining."
-            local _old_tb = _MANIFOLDS[$(name_symbol)].tangent_bundle
+            local _old_tb  = getfield(_MANIFOLDS[$(name_symbol)], :tangent_bundle)
+            local _old_ctb = getfield(_MANIFOLDS[$(name_symbol)], :cotangent_bundle)
             if haskey(_VBUNDLES, _old_tb)
-                for _old_idx in _VBUNDLES[_old_tb].indices
-                    unregister_index!(_old_idx.symbol)
+                for _old_idx in getfield(_VBUNDLES[_old_tb], :indices)
+                    unregister_index!(getfield(_old_idx, :symbol))
                 end
                 delete!(_VBUNDLES, _old_tb)
-                delete!(_VBUNDLES, _MANIFOLDS[$(name_symbol)].cotangent_bundle)
+                delete!(_VBUNDLES, _old_ctb)
             end
+            # Clean up all frame types from _BASES
+            for _ftype in (:coordinate, :moving)
+                delete!(_BASES, (_old_tb,  _ftype))
+                delete!(_BASES, (_old_ctb, _ftype))
+            end
+            # Clean up frame bundles
+            local _old_fb  = Symbol("frame",   $(name_symbol))
+            local _old_cfb = Symbol("coframe", $(name_symbol))
+            delete!(_FRAME_BUNDLES, _old_fb)
+            delete!(_FRAME_BUNDLES, _old_cfb)
             delete!(_MANIFOLDS, $(name_symbol))
         end
 
         # ── Runtime locals ───────────────────────────────────────────────
         local _dim::Dim = $(dim_expr)
-        local _indices  = $(index_symbols)   # Vector{Symbol}, embedded at expansion time
+        local _indices  = $(index_symbols)
 
         _dim isa Int && (_dim > 0 || error("@def_manifold: dimension must be positive, got $_dim"))
 
@@ -258,16 +417,20 @@ macro def_manifold(name, dim, indices)
                   "than 4. Add more with @add_indices later."
         end
 
-        # ── Step 1: Register indices into _INDICES first ──────────────────
+        # ── Step 1: Register manifold stub ────────────────────────────────
+        # (We print the manifold line first, before bundles and frames.)
+        println("Defined manifold $($(name_symbol)) of dimension $(_dim)")
+
+        # ── Step 2: Register indices ──────────────────────────────────────
         for _idx in _indices
             register_index!(_idx, $(tangent_symbol))
         end
 
-        # ── Step 2: Build TensorIndex vectors ────────────────────────────
+        # ── Step 3: Build TensorIndex vectors ────────────────────────────
         local _t_indices = [TensorIndex(s, $(tangent_symbol))   for s in _indices]
         local _c_indices = [TensorIndex(s, $(cotangent_symbol)) for s in _indices]
 
-        # ── Step 3: Register bundles ─────────────────────────────────────
+        # ── Step 4: Register bundles ─────────────────────────────────────
         _VBUNDLES[$(tangent_symbol)] = VBundle(
             $(tangent_symbol), $(name_symbol), _dim, false,
             $(cotangent_symbol), _t_indices
@@ -277,27 +440,35 @@ macro def_manifold(name, dim, indices)
             $(tangent_symbol), _c_indices
         )
 
-        # ── Step 4: Register manifold ────────────────────────────────────
+        # ── Step 5: Register manifold ─────────────────────────────────────
         _MANIFOLDS[$(name_symbol)] = Manifold(
             $(name_symbol), _dim,
             $(tangent_symbol), $(cotangent_symbol),
             [$(tangent_symbol), $(cotangent_symbol)]
         )
 
-        # ── Step 5: Bind Manifold and VBundle instances in caller's scope ─
+        # ── Step 6: Bind Manifold and VBundle instances in caller's scope ─
         $(esc(name))           = _MANIFOLDS[$(name_symbol)]
         $(esc(tangent_name))   = _VBUNDLES[$(tangent_symbol)]
         $(esc(cotangent_name)) = _VBUNDLES[$(cotangent_symbol)]
 
-        # ── Step 6: Bind TensorIndex variables in caller's scope ──────────
-        # Each index symbol gets a variable bound to a contravariant TensorIndex.
-        # Unary - on TensorIndex calls flip, giving the covariant form.
-        # This ensures [a1, -a2] produces Vector{TensorIndex}, not Vector{Any}.
+        # ── Step 7: Bind TensorIndex variables in caller's scope ──────────
         $([ :($(esc(s)) = TensorIndex($(QuoteNode(s)), $(tangent_symbol))) for s in index_symbols ]...)
 
-        println("Defined manifold $($(name_symbol)) of dimension $(_dim) " *
-                "with tangent bundle $($(tangent_symbol)) " *
-                "and cotangent bundle $($(cotangent_symbol))")
+        # ── Step 8: Register coordinate frame (inline) ────────────────────
+        # Binds nat_frame and nat_coframe (e.g. ∂ and dx) in the caller's scope.
+        $(_gen_coord_frame_registration_expr(tangent_symbol, cotangent_symbol, nat_frame, nat_coframe))
+
+        # ── Step 9: Register moving frame (inline) ────────────────────────
+        # Creates FrameBundle objects and binds frame_name, coframe_name,
+        # mov_frame, mov_coframe (e.g. frameM, coframeM, e, θ) in scope.
+        $(_gen_moving_frame_registration_expr(
+            frame_name, coframe_name,
+            tangent_symbol, cotangent_symbol,
+            mov_frame, mov_coframe,
+            name_symbol,
+        ))
+
         nothing
     end
 end
@@ -362,6 +533,18 @@ macro undef_manifold(name)
             delete!(_VBUNDLES, _ctb_name)
         end
 
+        # Clean up all frame types from _BASES
+        for _ftype in (:coordinate, :moving)
+            delete!(_BASES, (_tb_name,  _ftype))
+            delete!(_BASES, (_ctb_name, _ftype))
+        end
+
+        # Clean up frame bundles
+        local _fb_name  = Symbol("frame",   $(name_sym))
+        local _cfb_name = Symbol("coframe", $(name_sym))
+        delete!(_FRAME_BUNDLES, _fb_name)
+        delete!(_FRAME_BUNDLES, _cfb_name)
+
         delete!(_MANIFOLDS, $(name_sym))
 
         @warn "Manifold $($(name_sym)) has been undefined. " *
@@ -404,14 +587,39 @@ Field access for `VBundle` instances.
 
 Same stale-reference guard as for `Manifold`: checks that `v` is still
 registered in `_VBUNDLES` before returning the requested field.
+
+In addition, exposes the virtual property `:basis` which returns the
+[`Basis`](@ref) registered for this bundle in `_BASES` (defined in
+`frames.jl`, populated by [`@def_frame_bundle`](@ref)). Returns `nothing`
+if no frame has been registered for this bundle yet.
+
+    tangentM.basis    # → Basis(:∂,  :tangentM,   :coordinate)
+    cotangentM.basis  # → Basis(:dx, :cotangentM, :coordinate)
+
+The `_BASES` lookup is resolved at call time, so `frames.jl` need not
+be loaded before `manifolds.jl` — no forward-reference problem arises.
 """
 function Base.getproperty(v::VBundle, field::Symbol)
+    if field === :basis
+        # Returns the coordinate-frame Basis (default). _BASES defined in frames.jl.
+        return get(_BASES, (getfield(v, :name), :coordinate), nothing)
+    end
     if !haskey(_VBUNDLES, getfield(v, :name))
         @warn "VBundle :$(getfield(v, :name)) has been undefined. " *
               "Variable still holds a stale reference."
         return nothing
     end
     getfield(v, field)
+end
+
+"""
+    Base.propertynames(v::VBundle, private::Bool=false)
+
+Return the property names available on a `VBundle`, including the
+virtual `:basis` property backed by `_BASES`.
+"""
+function Base.propertynames(::VBundle, private::Bool=false)
+    (:name, :manifold, :dim, :isdual, :dual, :indices, :basis)
 end
 
 # =========================================

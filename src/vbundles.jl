@@ -55,7 +55,44 @@ A1.vbundle     # :E
 M.vbundles     # [:tangentM, :cotangentM, :E, :dualE]
 ```
 """
-macro def_vbundle(name, manifold_name, dim, indices)
+# ── kwargs parser ─────────────────────────────────────────────────────────────
+
+# Parse only dual_name= from @def_vbundle kwargs.
+# Returns dual_name_override::Union{Symbol,Nothing}
+# Note: basis= / cobasis= have been removed; coordinate frames are
+# registered exclusively by @def_manifold's inline frame registration.
+function _parse_vbundle_kwargs(kwargs)
+    dual_name_override = nothing
+
+    for kw in kwargs
+        Meta.isexpr(kw, :(=), 2) ||
+            error("@def_vbundle: expected keyword=value argument, got: $kw")
+        k, v = kw.args
+
+        sym_val = if v isa Symbol
+            v
+        elseif v isa QuoteNode && v.value isa Symbol
+            v.value
+        else
+            nothing
+        end
+
+        if k === :dual_name
+            sym_val !== nothing ||
+                error("@def_vbundle: dual_name must be a symbol, got $v")
+            dual_name_override = sym_val
+        else
+            error(
+                "@def_vbundle: unknown keyword :$k. " *
+                "Supported: dual_name."
+            )
+        end
+    end
+
+    return dual_name_override
+end
+
+macro def_vbundle(name, manifold_name, dim, indices, kwargs...)
     name isa Symbol ||
         error("@def_vbundle: first argument must be a bundle symbol, got $name")
     manifold_name isa Symbol ||
@@ -71,7 +108,10 @@ macro def_vbundle(name, manifold_name, dim, indices)
         esc(dim)
     end
 
-    dual_name       = Symbol("dual", name)
+    # Parse kwargs (only dual_name= is supported now)
+    dual_name_override = _parse_vbundle_kwargs(kwargs)
+
+    dual_name       = isnothing(dual_name_override) ? Symbol("dual", name) : dual_name_override
     name_symbol     = QuoteNode(name)
     dual_symbol     = QuoteNode(dual_name)
     manifold_symbol = QuoteNode(manifold_name)
@@ -88,16 +128,22 @@ macro def_vbundle(name, manifold_name, dim, indices)
         # ── Guard: warn and clean up if redefining ────────────────────────
         if haskey(_VBUNDLES, $(name_symbol))
             @warn "VBundle $($(name_symbol)) is already defined. Redefining."
+            local _old_dual_redef = getfield(_VBUNDLES[$(name_symbol)], :dual)
             for _old_idx in getfield(_VBUNDLES[$(name_symbol)], :indices)
                 unregister_index!(getfield(_old_idx, :symbol))
             end
             local _m_old = _MANIFOLDS[$(manifold_symbol)]
             filter!(
-                x -> x ∉ ($(name_symbol), $(dual_symbol)),
+                x -> x ∉ ($(name_symbol), _old_dual_redef),
                 getfield(_m_old, :vbundles)
             )
+            # Clean all frame types from _BASES
+            for _ftype in (:coordinate, :moving)
+                delete!(_BASES, ($(name_symbol),  _ftype))
+                delete!(_BASES, (_old_dual_redef, _ftype))
+            end
             delete!(_VBUNDLES, $(name_symbol))
-            delete!(_VBUNDLES, $(dual_symbol))
+            delete!(_VBUNDLES, _old_dual_redef)
         end
 
         # ── Validate dimension ────────────────────────────────────────────
@@ -215,6 +261,7 @@ macro undef_vbundle(name, manifold_name)
         # ── Capture data before deletion ──────────────────────────────────
         local _vb_data  = _VBUNDLES[$(name_symbol)]
         local _man_sym  = getfield(_vb_data, :manifold)
+        local _vb_dual  = getfield(_vb_data, :dual)   # actual dual name
 
         # ── Unregister indices ────────────────────────────────────────────
         for _idx in getfield(_vb_data, :indices)
@@ -224,16 +271,22 @@ macro undef_vbundle(name, manifold_name)
         # ── Remove from manifold's vbundles list ──────────────────────────
         if haskey(_MANIFOLDS, _man_sym)
             filter!(
-                x -> x ∉ ($(name_symbol), $(dual_symbol)),
+                x -> x ∉ ($(name_symbol), _vb_dual),
                 getfield(_MANIFOLDS[_man_sym], :vbundles)
             )
         end
 
+        # ── Clean up frames in _BASES ──────────────────────────────────────
+        for _ftype in (:coordinate, :moving)
+            delete!(_BASES, ($(name_symbol), _ftype))
+            delete!(_BASES, (_vb_dual,       _ftype))
+        end
+
         # ── Delete from _VBUNDLES ─────────────────────────────────────────
         delete!(_VBUNDLES, $(name_symbol))
-        delete!(_VBUNDLES, $(dual_symbol))
+        delete!(_VBUNDLES, _vb_dual)
 
-        @warn "VBundle $($(name_symbol)) and dual $($(dual_symbol)) have been undefined. " *
+        @warn "VBundle $($(name_symbol)) and dual $(_vb_dual) have been undefined. " *
               "Variables still hold stale references. " *
               "Restart the kernel to fully clear the bindings."
         nothing
