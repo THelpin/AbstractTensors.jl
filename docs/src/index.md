@@ -53,11 +53,10 @@ Bracket sugar uses unary `-` / `+`:
     flip(a1)     # toggle variance
 
 **Slot structure.** Each tensor stores its slot structure as a
-`Vector{Symbol}` of vbundle names — one per slot. The sign prefixes in
-`@def_tensor T[-a1, a2] M` communicate variance at definition time and are
-then discarded; the tensor retains only `[:cotangentM, :tangentM]`. Index
-symbols used at definition time are validated against the manifold and
-forgotten.
+`Vector{Symbol}` of vbundle names — one per slot. At definition time you
+pass those symbols directly, e.g. `@def_tensor T [cotangentM, tangentM]`.
+At expression time you still use coordinate indices (`T[-a1, a2]`) whose
+variance is determined by the index, not re-validated against `T.slots`.
 
 **Symmetry groups.** Tensor slot symmetries are represented as
 [`SlotSymmetry`](@ref) objects: subgroups of the signed permutation group
@@ -88,17 +87,17 @@ a1        # CoordinateIndex(:a1, :tangentM)    — contravariant
 -a1       # CoordinateIndex(:a1, :cotangentM)  — covariant
 F[-a1, -a2]   # bracket indexing uses AbstractIndex values only
 
-# 4. Define tensors with varying slot structures and symmetries
-@def_tensor T[-a1, -a2] M                          # rank-2 covariant, no symmetry
-@def_tensor g[-a1, -a2] M symmetry=symmetric(2)   # symmetric metric
-@def_tensor A[-a1, -a2] M symmetry=antisymmetric(2)  # 2-form
+# 4. Define a metric, then tensors with varying slot structures and symmetries
+@def_metric g M                                       # rank-2 covariant symmetric metric
+@def_tensor T [cotangentM, cotangentM]                # rank-2 covariant, no symmetry
+@def_tensor A [cotangentM, cotangentM] symmetries=[antisymmetric(2)]  # 2-form
 
-@def_tensor ε[-a1,-a2,-a3,-a4] M symmetry=antisymmetric(4)        # Levi-Civita
-@def_tensor R[-a1,-a2,-a3,-a4] M symmetry=riemann_symmetry()      # Riemann
-@def_tensor W[-a1,-a2,-a3,-a4] M symmetry=riemann_symmetry() traceless=true print_as=:Weyl
+@def_tensor ε [cotangentM, cotangentM, cotangentM, cotangentM] symmetries=[antisymmetric(4)]
+@def_tensor R [cotangentM, cotangentM, cotangentM, tangentM] symmetries=[riemann_symmetry()]
+@def_tensor W [cotangentM, cotangentM, cotangentM, tangentM] symmetries=[riemann_symmetry()] traceless=true print_as=:Weyl
 
 # Mixed (1,1) tensor
-@def_tensor Γ[a1, -a2] M
+@def_tensor Γ [tangentM, cotangentM]
 
 # 5. Inspect a tensor
 T.rank         # 2

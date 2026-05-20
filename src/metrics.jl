@@ -11,7 +11,7 @@
 # store a reference to whichever metric they were assigned (or nothing).
 #
 # xTensor analogs:
-#   DefMetric[g[-i,-j], M]  →  @def_metric g[-a1,-a2] M
+#   DefMetric[g[-i,-j], M]  →  @def_metric g M
 #   $Metrics                →  _METRICS
 #   MetricQ[g]              →  is_metric(g)
 #   MetricsOfManifold[M]    →  metrics_on_manifold(:M)
@@ -43,133 +43,78 @@ const _METRICS = Dict{Symbol, Symbol}()
 # =========================================
 
 """
-    @def_metric name[-a1, -a2] M
-    @def_metric name[-a1, -a2] M print_as=:sym
+    @def_metric name M
 
 Define a new metric tensor on manifold `M`, bind it to `name` in the
 caller's scope, and register it in both [`_TENSORS`](@ref) and
 [`_METRICS`](@ref).
 
-`@def_metric` is a specialised wrapper around `@def_tensor` that enforces:
-- Rank exactly 2.
-- Both slots covariant (metric indices are always `g_{ab}`, never mixed).
-- `symmetries=[symmetric(2)]` — always fully symmetric, no user override.
-- `metric` set to the metric's own name (self-referential: the metric raises
-  and lowers its own indices).
+`@def_metric` is a specialised shortcut (not a call to [`@def_tensor`](@ref))
+that always builds a rank-2 fully covariant symmetric metric:
 
-Keyword arguments
------------------
-- `print_as` : display symbol. Defaults to `name`.
+- Slots: `[cotangentM, cotangentM]` from `M.cotangent_bundle` (both covariant).
+- `symmetries=[symmetric(2)]` — fixed, no user override.
+- `print_as` and `metric` both set to `name` (self-referential).
+- No keyword arguments.
 
-All other `@def_tensor` keywords (`symmetries`, `traceless`, `metric`) are
-intentionally not accepted — they are either fixed by definition or
-meaningless for a metric.
+At **expression** time you still write `g[-a1, -a2]` using coordinate indices;
+only **definition** uses `@def_metric g M`.
 
 # Examples
 ```julia
-@def_manifold M 4 [a1, a2, a3, a4]
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 
-@def_metric g[-a1, -a2] M             # Riemannian metric
-@def_metric η[-a1, -a2] M print_as=:η # Minkowski / alternative metric
+@def_metric g M    # Riemannian metric on M
+@def_metric η M    # second metric on the same manifold
 ```
 """
-macro def_metric(tensor_expr, manifold_expr, kwargs...)
-    # ── Expansion-time parsing ─────────────────────────────────────────
+macro def_metric(name, manifold_expr)
+    name isa Symbol ||
+        error("@def_metric: first argument must be a symbol, got: $name")
     manifold_expr isa Symbol ||
         error("@def_metric: second argument must be a manifold symbol, got: $manifold_expr")
 
-    # Reuse the tensor head parser — gives us name and slot specs.
-    tensor_name, slot_specs = _parse_tensor_head(tensor_expr)
-
-    # Only print_as is accepted.
-    print_as_sym = tensor_name
-    for kw in kwargs
-        Meta.isexpr(kw, :(=), 2) ||
-            error("@def_metric: expected keyword=value, got: $kw")
-        k, v = kw.args
-        if k === :print_as
-            if v isa QuoteNode && v.value isa Symbol
-                print_as_sym = v.value
-            elseif v isa Symbol
-                print_as_sym = v
-            else
-                error("@def_metric: print_as must be a quoted symbol, e.g. print_as=:η")
-            end
-        else
-            error(
-                "@def_metric: unsupported keyword :$k. " *
-                "Only print_as is accepted. Symmetry is always symmetric(2); " *
-                "metric is self-referential."
-            )
-        end
-    end
-
-    n = length(slot_specs)
-    index_syms   = [s for (s, _) in slot_specs]
-    is_cov_flags = [c for (_, c) in slot_specs]
-
-    manifold_sym  = QuoteNode(manifold_expr)
-    tensor_sym    = QuoteNode(tensor_name)
-    print_as_node = QuoteNode(print_as_sym)
-
-    idx_syms_expr  = :([$(map(QuoteNode, index_syms)...)])
-    cov_flags_expr = :([$(is_cov_flags...)])
+    manifold_sym = QuoteNode(manifold_expr)
+    name_sym = QuoteNode(name)
 
     quote
-        # ── Expansion-time constraints (enforced at runtime) ───────────
-        $n == 2 ||
-            error(
-                "@def_metric: a metric must have exactly 2 slots, got $($n). " *
-                "Metric indices are always g_{ab}."
-            )
-        all($(cov_flags_expr)) ||
-            error(
-                "@def_metric: both slots of a metric must be covariant (use -idx). " *
-                "Got slot pattern: $($(cov_flags_expr)). " *
-                "Metrics are always g_{ab}, not g^a{}_b or g^{ab}."
-            )
+        # ── Validate manifold ─────────────────────────────────────────
+        haskey(_MANIFOLDS, $(manifold_sym)) ||
+            error("@def_metric: manifold $($(manifold_sym)) is not registered")
 
-        # ── Guard: warn if redefining ──────────────────────────────────
-        if haskey(_METRICS, $(tensor_sym))
-            @warn "Metric $($(tensor_sym)) is already defined. Redefining."
-        elseif haskey(_TENSORS, $(tensor_sym))
-            @warn "Tensor $($(tensor_sym)) is already defined as a non-metric tensor. Redefining as metric."
+        local _M = _MANIFOLDS[$(manifold_sym)]
+        local _cotangent = _M.cotangent_bundle
+
+        # ── Guard: warn if redefining ─────────────────────────────────
+        if haskey(_TENSORS, $(name_sym))
+            @warn "Metric $($(name_sym)) is already defined. Redefining."
+        end
+        if haskey(_METRICS, $(name_sym))
+            delete!(_METRICS, $(name_sym))
         end
 
-        # ── Validate manifold ──────────────────────────────────────────
-        haskey(_MANIFOLDS, $(manifold_sym)) ||
-            error(
-                "@def_metric: manifold $($(manifold_sym)) is not registered. " *
-                "Call @def_manifold $($(manifold_sym)) first."
-            )
-        local _M = _MANIFOLDS[$(manifold_sym)]
+        # ── Build metric tensor ────────────────────────────────────────
+        local _slots = [_cotangent, _cotangent]
 
-        # ── Validate indices ───────────────────────────────────────────
-        validate_indices($(idx_syms_expr), _M.tangent_bundle)
+        # Metrics are symmetric (0,2) tensors
+        local _syms = [symmetric(2)]
 
-        # ── Build slots (both cotangent by construction) ───────────────
-        local _slots = [_M.cotangent_bundle, _M.cotangent_bundle]
-
-        # ── Construct Tensor ───────────────────────────────────────────
         local _T = Tensor(
-            $(manifold_sym),
-            _slots,
-            [symmetric(2)],
-            false,
-            Any[],
-            $(print_as_node),
-            $(tensor_sym)      # self-referential: metric is its own metric
+            $(manifold_sym),    # manifold
+            _slots,             # slots = [cotangentM, cotangentM]
+            _syms,              # symmetries = [symmetric(2)]
+            false,              # is_traceless
+            Any[],              # known_traces
+            $(name_sym),        # print_as
+            $(name_sym)         # metric (self-referential)
         )
 
-        # ── Register ───────────────────────────────────────────────────
-        _TENSORS[$(tensor_sym)]  = _T
-        _METRICS[$(tensor_sym)]  = $(manifold_sym)
+        # ── Register ─────────────────────────────────────────────────
+        _TENSORS[$(name_sym)] = _T
+        _METRICS[$(name_sym)] = $(manifold_sym)
+        $(esc(name)) = _T
 
-        $(esc(tensor_name)) = _T
-
-        println(
-            "Defined metric $($(tensor_sym)) on manifold $($(manifold_sym))"
-        )
+        println("Defined metric $($(name_sym)) on manifold $($(manifold_sym))")
         nothing
     end
 end
@@ -244,7 +189,7 @@ end
 
 Return the names of all currently registered metrics (across all manifolds).
 
-    @def_metric g[-a1, -a2] M
+    @def_metric g M
     list_metrics()   # [:g]
 """
 list_metrics() = collect(keys(_METRICS))

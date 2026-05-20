@@ -447,9 +447,9 @@ end
     @testset "Tensor struct and accessors" begin
         _clear_all_registries!()
         @def_manifold TS_M 4 [ts_a, ts_b, ts_c, ts_d] [TSM_B1, TSM_B2, TSM_B3, TSM_B4]
-        @def_metric   ts_g[-ts_a, -ts_b] TS_M
+        @def_metric ts_g TS_M
 
-        @def_tensor TS_T[-ts_a, -ts_b] TS_M
+        @def_tensor TS_T [cotangentTS_M, cotangentTS_M]
 
         @test TS_T isa Tensor
         @test is_tensor(TS_T)
@@ -470,21 +470,21 @@ end
 
 
     # ─────────────────────────────────────────────────────────────────
-    @testset "@def_tensor — slot variance" begin
+    @testset "@def_tensor — slot vbundles" begin
         _clear_all_registries!()
         @def_manifold SV_M 4 [sv_a, sv_b, sv_c, sv_d] [SVM_B1, SVM_B2, SVM_B3, SVM_B4]
-        @def_metric   sv_g[-sv_a, -sv_b] SV_M
+        @def_metric sv_g SV_M
 
         # all covariant
-        @def_tensor SV_cov[-sv_a, -sv_b] SV_M
+        @def_tensor SV_cov [cotangentSV_M, cotangentSV_M]
         @test SV_cov.slots == [:cotangentSV_M, :cotangentSV_M]
 
         # all contravariant
-        @def_tensor SV_con[sv_a, sv_b] SV_M
+        @def_tensor SV_con [tangentSV_M, tangentSV_M]
         @test SV_con.slots == [:tangentSV_M, :tangentSV_M]
 
         # mixed
-        @def_tensor SV_mix[sv_a, -sv_b] SV_M
+        @def_tensor SV_mix [tangentSV_M, cotangentSV_M]
         @test SV_mix.slots == [:tangentSV_M, :cotangentSV_M]
     end
 
@@ -493,33 +493,33 @@ end
     @testset "@def_tensor — symmetries" begin
         _clear_all_registries!()
         @def_manifold TSYM_M 4 [tsym_a, tsym_b, tsym_c, tsym_d] [TSYMM_B1, TSYMM_B2, TSYMM_B3, TSYMM_B4]
-        @def_metric   tsym_g[-tsym_a, -tsym_b] TSYM_M
+        @def_metric tsym_g TSYM_M
 
         # default: [no_symmetry(n)]
-        @def_tensor TSYM_none[-tsym_a, -tsym_b] TSYM_M
+        @def_tensor TSYM_none [cotangentTSYM_M, cotangentTSYM_M]
         @test length(TSYM_none.symmetries) == 1
         @test is_trivial_symmetry(TSYM_none.symmetries[1])
 
         # single SlotSymmetry (not wrapped in vector)
-        @def_tensor TSYM_s[-tsym_a, -tsym_b] TSYM_M symmetries=symmetric(2)
+        @def_tensor TSYM_s [cotangentTSYM_M, cotangentTSYM_M] symmetries=[symmetric(2)]
         @test length(TSYM_s.symmetries[1].group_elements) == 2
 
         # vector form
-        @def_tensor TSYM_v[-tsym_a, -tsym_b] TSYM_M symmetries=[antisymmetric(2)]
+        @def_tensor TSYM_v [cotangentTSYM_M, cotangentTSYM_M] symmetries=[antisymmetric(2)]
         @test !is_trivial_symmetry(TSYM_v.symmetries[1])
 
         # Riemann symmetry (rank-4)
-        @def_tensor TSYM_R[-tsym_a,-tsym_b,-tsym_c,-tsym_d] TSYM_M symmetries=[riemann_symmetry()]
+        @def_tensor TSYM_R [cotangentTSYM_M, cotangentTSYM_M, cotangentTSYM_M, cotangentTSYM_M] symmetries=[riemann_symmetry()]
         @test length(TSYM_R.symmetries[1].group_elements) == 8
 
         # traceless flag
-        @def_tensor TSYM_W[-tsym_a,-tsym_b,-tsym_c,-tsym_d] TSYM_M symmetries=[riemann_symmetry()] traceless=true
+        @def_tensor TSYM_W [cotangentTSYM_M, cotangentTSYM_M, cotangentTSYM_M, cotangentTSYM_M] symmetries=[riemann_symmetry()] traceless=true
         @test TSYM_W.is_traceless
 
         # symmetry degree mismatch → error
         @test_throws ErrorException @eval begin
             @def_manifold ERR_SYM_M 4 [err_s_a, err_s_b, err_s_c, err_s_d] [ERRSYMM_B1, ERRSYMM_B2, ERRSYMM_B3, ERRSYMM_B4]
-            @def_tensor ERR_SYM_T[-err_s_a, -err_s_b] ERR_SYM_M symmetries=symmetric(3)
+            @def_tensor ERR_SYM_T [cotangentERR_SYM_M, cotangentERR_SYM_M] symmetries=[symmetric(3)]
         end
     end
 
@@ -528,9 +528,9 @@ end
     @testset "@def_tensor — print_as" begin
         _clear_all_registries!()
         @def_manifold PA_M 4 [pa_a, pa_b, pa_c, pa_d] [PAM_B1, PAM_B2, PAM_B3, PAM_B4]
-        @def_metric pa_g[-pa_a, -pa_b] PA_M
+        @def_metric pa_g PA_M
 
-        @def_tensor PA_T[-pa_a, -pa_b] PA_M print_as=:Riemann
+        @def_tensor PA_T [cotangentPA_M, cotangentPA_M] print_as=:Riemann
         @test PA_T.print_as == :Riemann
     end
 
@@ -539,9 +539,9 @@ end
     @testset "@def_tensor — metric resolution: one metric (silent)" begin
         _clear_all_registries!()
         @def_manifold MR1_M 4 [mr1_a, mr1_b, mr1_c, mr1_d] [MR1M_B1, MR1M_B2, MR1M_B3, MR1M_B4]
-        @def_metric mr1_g[-mr1_a, -mr1_b] MR1_M
+        @def_metric mr1_g MR1_M
 
-        @def_tensor MR1_T[-mr1_a, -mr1_b] MR1_M   # no metric= given
+        @def_tensor MR1_T [cotangentMR1_M, cotangentMR1_M]   # no metric= given
         @test MR1_T.metric == :mr1_g
     end
 
@@ -551,7 +551,7 @@ end
         _clear_all_registries!()
         @def_manifold MR0_M 4 [mr0_a, mr0_b, mr0_c, mr0_d] [MR0M_B1, MR0M_B2, MR0M_B3, MR0M_B4]
 
-        @test_warn r"No metric" @def_tensor MR0_T[-mr0_a, -mr0_b] MR0_M
+        @test_warn r"No metric" @def_tensor MR0_T [cotangentMR0_M, cotangentMR0_M]
         @test _TENSORS[:MR0_T].metric === nothing
     end
 
@@ -560,10 +560,10 @@ end
     @testset "@def_tensor — metric resolution: multiple metrics (warning + first)" begin
         _clear_all_registries!()
         @def_manifold MR2_M 4 [mr2_a, mr2_b, mr2_c, mr2_d] [MR2M_B1, MR2M_B2, MR2M_B3, MR2M_B4]
-        @def_metric mr2_g[-mr2_a, -mr2_b] MR2_M
-        @def_metric mr2_h[-mr2_a, -mr2_b] MR2_M
+        @def_metric mr2_g MR2_M
+        @def_metric mr2_h MR2_M
 
-        @test_warn r"Multiple metrics" @def_tensor MR2_T[-mr2_a, -mr2_b] MR2_M
+        @test_warn r"Multiple metrics" @def_tensor MR2_T [cotangentMR2_M, cotangentMR2_M]
         # assigned metric is the first sorted name (:mr2_g < :mr2_h lexicographically)
         @test _TENSORS[:MR2_T].metric in (:mr2_g, :mr2_h)
     end
@@ -573,13 +573,13 @@ end
     @testset "@def_tensor — metric= explicit (bare and quoted)" begin
         _clear_all_registries!()
         @def_manifold ME_M 4 [me_a, me_b, me_c, me_d] [MEM_B1, MEM_B2, MEM_B3, MEM_B4]
-        @def_metric me_g[-me_a, -me_b] ME_M
-        @def_metric me_h[-me_a, -me_b] ME_M
+        @def_metric me_g ME_M
+        @def_metric me_h ME_M
 
-        @def_tensor ME_T1[-me_a, -me_b] ME_M metric=me_g
+        @def_tensor ME_T1 [cotangentME_M, cotangentME_M] metric=me_g
         @test ME_T1.metric == :me_g
 
-        @def_tensor ME_T2[-me_a, -me_b] ME_M metric=:me_h
+        @def_tensor ME_T2 [cotangentME_M, cotangentME_M] metric=:me_h
         @test ME_T2.metric == :me_h
     end
 
@@ -589,11 +589,11 @@ end
         _clear_all_registries!()
         @def_manifold WM_A 4 [wm_a1, wm_a2, wm_a3, wm_a4] [WMA_B1, WMA_B2, WMA_B3, WMA_B4]
         @def_manifold WM_B 4 [wm_b1, wm_b2, wm_b3, wm_b4] [WMB_B1, WMB_B2, WMB_B3, WMB_B4]
-        @def_metric wm_gA[-wm_a1, -wm_a2] WM_A
+        @def_metric wm_gA WM_A
 
         @test_throws ErrorException @eval begin
             using AbstractTensors
-            @def_tensor WM_T[-wm_b1, -wm_b2] WM_B metric=wm_gA
+            @def_tensor WM_T [cotangentWM_B, cotangentWM_B] metric=wm_gA
         end
     end
 
@@ -605,7 +605,7 @@ end
 
         @test_throws ErrorException @eval begin
             using AbstractTensors
-            @def_tensor UR_T[-ur_a, -ur_b] UR_M metric=:not_a_metric
+            @def_tensor UR_T [cotangentUR_M, cotangentUR_M] metric=:not_a_metric
         end
     end
 
@@ -615,12 +615,12 @@ end
         _clear_all_registries!()
         @def_manifold REG_M 4 [reg_a, reg_b, reg_c, reg_d] [REGM_B1, REGM_B2, REGM_B3, REGM_B4]
 
-        @test_warn r"No metric" @def_tensor REG_T[-reg_a, -reg_b] REG_M
+        @test_warn r"No metric" @def_tensor REG_T [cotangentREG_M, cotangentREG_M]
         @test haskey(_TENSORS, :REG_T)
         @test :REG_T in list_tensors()
 
         # redefine issues warning
-        @test_warn r"already defined" @def_tensor REG_T[-reg_a, -reg_b] REG_M
+        @test_warn r"already defined" @def_tensor REG_T [cotangentREG_M, cotangentREG_M]
 
         @undef_tensor REG_T
         @test !haskey(_TENSORS, :REG_T)
@@ -635,7 +635,7 @@ end
     @testset "@undef_metric removes from _METRICS and _TENSORS" begin
         _clear_all_registries!()
         @def_manifold UM_M 4 [um_a, um_b, um_c, um_d] [UMM_B1, UMM_B2, UMM_B3, UMM_B4]
-        @def_metric um_g[-um_a, -um_b] UM_M
+        @def_metric um_g UM_M
 
         @test haskey(_METRICS, :um_g)
         @test_throws ErrorException @undef_tensor um_g
@@ -649,8 +649,8 @@ end
     @testset "Tensor show methods do not throw" begin
         _clear_all_registries!()
         @def_manifold SH_M 4 [sh_a, sh_b, sh_c, sh_d] [SHM_B1, SHM_B2, SHM_B3, SHM_B4]
-        @def_metric sh_g[-sh_a, -sh_b] SH_M
-        @def_tensor SH_T[-sh_a, -sh_b] SH_M
+        @def_metric sh_g SH_M
+        @def_tensor SH_T [cotangentSH_M, cotangentSH_M]
 
         @test (repr(SH_T); true)
         @test (repr("text/html", SH_T); true)
@@ -662,7 +662,7 @@ end
     @testset "@def_metric — basic registration" begin
         _clear_all_registries!()
         @def_manifold DFM_M 4 [dfm_a, dfm_b, dfm_c, dfm_d] [DFMM_B1, DFMM_B2, DFMM_B3, DFMM_B4]
-        @def_metric dfm_g[-dfm_a, -dfm_b] DFM_M
+        @def_metric dfm_g DFM_M
 
         @test haskey(_TENSORS, :dfm_g)
         @test haskey(_METRICS, :dfm_g)
@@ -681,41 +681,9 @@ end
 
 
     # ─────────────────────────────────────────────────────────────────
-    @testset "@def_metric — print_as" begin
+    @testset "@def_metric — unregistered manifold → error" begin
         _clear_all_registries!()
-        @def_manifold PG_M 4 [pg_a, pg_b, pg_c, pg_d] [PGM_B1, PGM_B2, PGM_B3, PGM_B4]
-        @def_metric pg_η[-pg_a, -pg_b] PG_M print_as=:η
-        @test pg_η.print_as == :η
-    end
-
-
-    # ─────────────────────────────────────────────────────────────────
-    @testset "@def_metric — rank guard (not 2) → error" begin
-        _clear_all_registries!()
-        @def_manifold RG_M 4 [rg_a, rg_b, rg_c, rg_d] [RGM_B1, RGM_B2, RGM_B3, RGM_B4]
-
-        @test_throws ErrorException @def_metric rg_bad[-rg_a] RG_M
-    end
-
-
-    # ─────────────────────────────────────────────────────────────────
-    @testset "@def_metric — covariant guard (contravariant slot) → error" begin
-        _clear_all_registries!()
-        @def_manifold CG_M 4 [cg_a, cg_b, cg_c, cg_d] [CGM_B1, CGM_B2, CGM_B3, CGM_B4]
-
-        @test_throws ErrorException @def_metric cg_bad[-cg_a, cg_b] CG_M
-    end
-
-
-    # ─────────────────────────────────────────────────────────────────
-    @testset "@def_metric — unsupported keyword → error" begin
-        _clear_all_registries!()
-        @def_manifold UK_M 4 [uk_a, uk_b, uk_c, uk_d] [UKM_B1, UKM_B2, UKM_B3, UKM_B4]
-
-        @test_throws ErrorException macroexpand(
-            @__MODULE__,
-            :(@def_metric uk_g[-uk_a, -uk_b] UK_M symmetries=symmetric(2)),
-        )
+        @test_throws ErrorException @eval @def_metric bad_g BAD_MANIFOLD
     end
 
 
@@ -723,9 +691,9 @@ end
     @testset "@def_metric — non-metric is_metric = false" begin
         _clear_all_registries!()
         @def_manifold NM_M 4 [nm_a, nm_b, nm_c, nm_d] [NMM_B1, NMM_B2, NMM_B3, NMM_B4]
-        @def_metric nm_g[-nm_a, -nm_b] NM_M
+        @def_metric nm_g NM_M
 
-        @def_tensor nm_T[-nm_a, -nm_b] NM_M metric=:nm_g
+        @def_tensor nm_T [cotangentNM_M, cotangentNM_M] metric=:nm_g
 
         # nm_T is a plain tensor; nm_g is the metric
         @test !is_metric(nm_T)
@@ -738,7 +706,7 @@ end
     @testset "@undef_metric" begin
         _clear_all_registries!()
         @def_manifold UMT_M 4 [umt_a, umt_b, umt_c, umt_d] [UMTM_B1, UMTM_B2, UMTM_B3, UMTM_B4]
-        @def_metric umt_g[-umt_a, -umt_b] UMT_M
+        @def_metric umt_g UMT_M
 
         @test haskey(_METRICS, :umt_g)
         @undef_metric umt_g
@@ -757,10 +725,10 @@ end
 
         @test metrics_of_manifold(:MON_M) == Symbol[]
 
-        @def_metric mon_g[-mon_a, -mon_b] MON_M
+        @def_metric mon_g MON_M
         @test metrics_of_manifold(:MON_M) == [:mon_g]
 
-        @def_metric mon_h[-mon_a, -mon_b] MON_M
+        @def_metric mon_h MON_M
         result = metrics_of_manifold(:MON_M)
         @test length(result) == 2
         @test :mon_g in result
@@ -772,7 +740,7 @@ end
     @testset "metric_info / show_metrics do not throw" begin
         _clear_all_registries!()
         @def_manifold MI_M 4 [mi_a, mi_b, mi_c, mi_d] [MIM_B1, MIM_B2, MIM_B3, MIM_B4]
-        @def_metric mi_g[-mi_a, -mi_b] MI_M
+        @def_metric mi_g MI_M
 
         @test (metric_info(mi_g); true)
         @test (show_metrics(); true)
@@ -794,10 +762,10 @@ end
     @testset "Full workflow: manifold → metric → tensors → symmetry" begin
         _clear_all_registries!()
         @def_manifold FW_M 4 [fw_a, fw_b, fw_c, fw_d] [FWM_B1, FWM_B2, FWM_B3, FWM_B4]
-        @def_metric   fw_g[-fw_a, -fw_b] FW_M
+        @def_metric fw_g FW_M
 
-        @def_tensor fw_R[-fw_a,-fw_b,-fw_c,-fw_d] FW_M symmetries=[riemann_symmetry()]
-        @def_tensor fw_W[-fw_a,-fw_b,-fw_c,-fw_d] FW_M symmetries=[riemann_symmetry()] traceless=true print_as=:Weyl
+        @def_tensor fw_R [cotangentFW_M, cotangentFW_M, cotangentFW_M, cotangentFW_M] symmetries=[riemann_symmetry()]
+        @def_tensor fw_W [cotangentFW_M, cotangentFW_M, cotangentFW_M, cotangentFW_M] symmetries=[riemann_symmetry()] traceless=true print_as=:Weyl
 
         @test fw_R.metric     == :fw_g
         @test fw_W.print_as   == :Weyl
@@ -823,7 +791,7 @@ end
         @test sgn3 == Int8(1)
 
         # Mixed-rank tensor
-        @def_tensor fw_mixed[fw_a, -fw_b] FW_M
+        @def_tensor fw_mixed [tangentFW_M, cotangentFW_M]
         @test fw_mixed.slots == [:tangentFW_M, :cotangentFW_M]
         @test fw_mixed.metric == :fw_g
     end
@@ -1034,8 +1002,8 @@ end
     @testset "basis_expansion — covariant tensor" begin
         _clear_all_registries!()
         @def_manifold COV_M 4 [cov_a, cov_b, cov_c, cov_d] [COVM_B1, COVM_B2, COVM_B3, COVM_B4]
-        @def_metric cov_g[-cov_a, -cov_b] COV_M
-        @def_tensor COV_T[-cov_a, -cov_b] COV_M
+        @def_metric cov_g COV_M
+        @def_tensor COV_T [cotangentCOV_M, cotangentCOV_M]
 
         # Via TensorExpression
         te  = COV_T[-cov_a, -cov_b]
@@ -1071,7 +1039,7 @@ end
     @testset "basis_expansion — contravariant tensor" begin
         _clear_all_registries!()
         @def_manifold CTR_M 4 [ctr_a, ctr_b, ctr_c, ctr_d] [CTRM_B1, CTRM_B2, CTRM_B3, CTRM_B4]
-        @def_tensor CTR_T[ctr_a, ctr_b] CTR_M
+        @def_tensor CTR_T [tangentCTR_M, tangentCTR_M]
 
         te = CTR_T[ctr_a, ctr_b]
         bx = basis_expansion(te)
@@ -1091,7 +1059,7 @@ end
     @testset "basis_expansion — mixed tensor" begin
         _clear_all_registries!()
         @def_manifold MX_M 4 [mx_a, mx_b, mx_c, mx_d] [MXM_B1, MXM_B2, MXM_B3, MXM_B4]
-        @def_tensor MX_T[mx_a, -mx_b] MX_M
+        @def_tensor MX_T [tangentMX_M, cotangentMX_M]
 
         te = MX_T[mx_a, -mx_b]
         bx = basis_expansion(te)
@@ -1255,8 +1223,8 @@ end
     @testset "basis_expansion — frame=:moving" begin
         _clear_all_registries!()
         @def_manifold MV_M 4 [mv_a, mv_b, mv_c, mv_d] [MVM_B1, MVM_B2, MVM_B3, MVM_B4]
-        @def_metric mv_g[-mv_a, -mv_b] MV_M
-        @def_tensor MV_T[-mv_a, -mv_b] MV_M
+        @def_metric mv_g MV_M
+        @def_tensor MV_T [cotangentMV_M, cotangentMV_M]
 
         te = MV_T[-mv_a, -mv_b]
 

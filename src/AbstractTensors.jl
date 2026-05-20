@@ -21,6 +21,7 @@ include("tensors.jl")
 include("metrics.jl")
 include("tensorExpressions.jl")
 include("frames.jl")
+include("show.jl")
 
 """
     show_registry()

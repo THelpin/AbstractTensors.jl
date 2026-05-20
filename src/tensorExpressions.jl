@@ -124,7 +124,7 @@ Accepted argument types per slot:
 # Examples
 ```julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-@def_metric g[-a1, -a2] M
+@def_metric g M
 @def_tensor F[-a1, -a2] M symmetries=[antisymmetric(2)]
 
 g[-a1, -a2]              # covariant metric (canonical form)

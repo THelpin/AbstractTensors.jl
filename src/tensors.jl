@@ -1,30 +1,13 @@
 # =========================================
 # tensors.jl — AbstractTensors.jl
 #
-# Design principles (mirrors manifolds.jl / indices.jl):
+# Design principles:
 #   - A Tensor is a plain struct instance. @def_tensor binds the tensor
 #     variable in the caller's scope and registers it in _TENSORS.
-#   - Slots store vbundle names only — not the defining index symbols.
-#     The symbols in @def_tensor T[-a1, a2] M are used only for validation
-#     (checking manifold membership) and then discarded.
+#   - Slots store vbundle names only.
 #   - Symmetries is a Vector{SlotSymmetry} acting on positions 1:n.
 #   - Metric is stored as a Symbol key into _METRICS, or nothing.
 #   - Dot-access provides derived properties (rank).
-#
-# Index binding change (from previous version):
-#   Index variables in caller scope are CoordinateIndex or BasisIndex, not IndexSymbol.
-#   The macro syntax T[-a1, a2] still works unchanged: unary - on an
-#   AbstractIndex calls flip, giving the covariant form. The parsing logic
-#   in _parse_tensor_head operates on Symbols internally and is unaffected.
-#
-# xTensor analogs:
-#   DefTensor[T[-i1,-i2], M]  →  @def_tensor T[-a1, -a2] M
-#   $Tensors                  →  _TENSORS
-#   TensorQ[T]                →  is_tensor(T)
-#   RankOfTensor[T]           →  T.rank
-#   SlotsOfTensor[T]          →  T.slots
-#   SymmetryGroupOfTensor[T]  →  T.symmetries
-#   PrintAs[T]                →  T.print_as
 # =========================================
 
 
@@ -54,10 +37,8 @@ Provides dot access to all metadata:
 - `manifold`      : name of the base manifold, key into `_MANIFOLDS`
 - `slots`         : vbundle symbol per slot, encoding variance.
                     `:cotangentM` → covariant, `:tangentM` → contravariant.
-                    Built from the index signs in the `@def_tensor` expression.
 - `symmetries`    : `Vector{`[`SlotSymmetry`](@ref)`}` — list of permutation
-                    groups acting on slot positions `1:rank`. Use convenience
-                    constructors `symmetric`, `antisymmetric`, etc.
+                    groups acting on slot positions `1:rank`.
 - `is_traceless`  : if `true`, any self-contraction of this tensor gives zero
                     (e.g. the Weyl tensor).
 - `known_traces`  : user-declared trace values, e.g. `g[a,-a] = dim`.
@@ -130,40 +111,6 @@ is_tensor(x) = x isa Tensor
 # 4.  Macro helpers  (expansion-time only)
 # =========================================
 
-# Parse T[-a1, a2, -a3] → (:T, [(:a1,true), (:a2,false), (:a3,true)])
-# Called at macro expansion time; errors early with clear messages.
-# Operates on plain Symbols internally — unaffected by the IndexSymbol removal.
-function _parse_tensor_head(expr)
-    Meta.isexpr(expr, :ref) ||
-        error("@def_tensor: first argument must be T[...] syntax, got: $expr")
-
-    tensor_name = expr.args[1]
-    tensor_name isa Symbol ||
-        error("@def_tensor: tensor name must be a plain symbol, got: $tensor_name")
-
-    slot_specs = Tuple{Symbol, Bool}[]
-    for arg in expr.args[2:end]
-        if arg isa Symbol
-            push!(slot_specs, (arg, false))   # contravariant slot
-        elseif Meta.isexpr(arg, :call) &&
-               length(arg.args) == 2   &&
-               arg.args[1] == :-       &&
-               arg.args[2] isa Symbol
-            push!(slot_specs, (arg.args[2], true))   # covariant slot
-        else
-            error(
-                "@def_tensor: each slot must be a plain symbol (contravariant) " *
-                "or -symbol (covariant), got: $arg"
-            )
-        end
-    end
-
-    isempty(slot_specs) &&
-        error("@def_tensor: tensor must have at least one slot")
-
-    return tensor_name, slot_specs
-end
-
 # Parse keyword arguments symmetries=..., traceless=..., print_as=..., metric=...
 # Returns (symmetries_expr_or_nothing, traceless::Bool, print_as::Symbol, metric_expr_or_nothing)
 function _parse_tensor_kwargs(kwargs, default_print_as::Symbol)
@@ -193,9 +140,9 @@ function _parse_tensor_kwargs(kwargs, default_print_as::Symbol)
             end
         elseif k === :metric
             if v isa Symbol
-                metric_expr = QuoteNode(v)        # metric=g  → :g
+                metric_expr = QuoteNode(v)
             elseif v isa QuoteNode && v.value isa Symbol
-                metric_expr = v                   # metric=:g → :g
+                metric_expr = v
             else
                 error("@def_tensor: metric= must be a symbol name, e.g. metric=g")
             end
@@ -216,20 +163,20 @@ end
 # =========================================
 
 """
-    @def_tensor name[slot1, slot2, ...] manifold
-    @def_tensor name[slot1, slot2, ...] manifold  symmetries=[S1,...]  traceless=bool  print_as=:sym  metric=g
+    @def_tensor name [vbundle1, vbundle2, ...] [symmetries=...] [traceless=...] [print_as=:...] [metric=...]
 
-Define a new abstract tensor on `manifold` and bind it to `name` in the
-caller's scope.
+Define a new abstract tensor and bind it to `name` in the caller's scope.
 
 ### Slot syntax
 
--  `+idx (or idx)` : contravariant (upper) slot — index lives in `tangentM` or in the `vector bundle` specified in the input of `@def_vbundle` macro.
-- `-idx` : covariant (lower) slot — index lives in `cotangentM` or in the `dual vector bundle` specified by `@def_vbundle` macro.
+Specify slots directly as VBundle symbols. The manifold is automatically
+deduced from the first VBundle's `manifold` field.
 
-The index symbols (`idx`) must already be registered to `tangentM` via
-`@def_manifold` or to a given vector bundle via `@def_vbundle` or latter with `@add_indices` macro. They are used only for validation;
-the tensor stores vbundle names per slot, not the defining symbols.
+- `:tangentM` → contravariant (upper) slot
+- `:cotangentM` → covariant (lower) slot
+- Any user-defined VBundle from `@def_vbundle`
+
+All VBundle symbols must belong to the same manifold.
 
 ### Keyword arguments (all optional)
 
@@ -252,36 +199,52 @@ registers it in [`_TENSORS`](@ref).
 
 ```julia
 @def_manifold M 4 [a1, a2, a3, a4]
-@def_metric g[-a1, -a2] M
+@def_metric g M
 
-@def_tensor T[-a1, -a2] M                                   # metric auto-resolved to :g
-@def_tensor F[-a1, -a2] M symmetries=[antisymmetric(2)]
-@def_tensor R[-a1,-a2,-a3,-a4] M symmetries=[riemann_symmetry()]
-@def_tensor W[-a1,-a2,-a3,-a4] M symmetries=[riemann_symmetry()] traceless=true print_as=:Weyl
-@def_tensor mixed_T[a1, -a2] M   # mixed (1,1) tensor
+@def_tensor T [cotangentM, cotangentM]                 # (0,2) tensor, metric auto-resolved
+@def_tensor F [cotangentM, cotangentM] symmetries=[antisymmetric(2)]
+@def_tensor R [cotangentM, cotangentM, cotangentM, tangentM] symmetries=[riemann_symmetry()]
+@def_tensor W [cotangentM, cotangentM, cotangentM, tangentM] symmetries=[riemann_symmetry()] traceless=true print_as=:Weyl
+@def_tensor mixed_T [tangentM, cotangentM]            # (1,1) mixed tensor
 ```
 """
-macro def_tensor(tensor_expr, manifold_expr, kwargs...)
-    # ── Expansion-time parsing ─────────────────────────────────────────
-    manifold_expr isa Symbol ||
-        error("@def_tensor: second argument must be a manifold symbol, got: $manifold_expr")
+macro def_tensor(tensor_name, vbundle_list, kwargs...)
+    tensor_name isa Symbol ||
+        error("@def_tensor: first argument must be a tensor name symbol, got: $tensor_name")
 
-    tensor_name, slot_specs = _parse_tensor_head(tensor_expr)
+    Meta.isexpr(vbundle_list, :vect) ||
+        error("@def_tensor: second argument must be a vector, got: $vbundle_list")
+
+    # Build expressions to extract VBundle names at runtime
+    name_exprs = []
+    for arg in vbundle_list.args
+        if arg isa Symbol
+            push!(name_exprs, QuoteNode(arg))
+        elseif arg isa QuoteNode && arg.value isa Symbol
+            push!(name_exprs, arg)
+        else
+            push!(name_exprs, :( $(esc(arg)).name ))
+        end
+    end
+
+    isempty(name_exprs) &&
+        error("@def_tensor: tensor must have at least one slot")
+
+    n = length(name_exprs)
+
     symmetries_expr, traceless, print_as_sym, metric_expr =
         _parse_tensor_kwargs(kwargs, tensor_name)
 
-    n             = length(slot_specs)
-    index_syms    = [s for (s, _) in slot_specs]
-    is_cov_flags  = [c for (_, c) in slot_specs]
+    # Handle default symmetries: if not provided, use [no_symmetry(n)]
+    if isnothing(symmetries_expr)
+        symmetries_expr = :([no_symmetry($n)])
+    else
+        symmetries_expr = esc(symmetries_expr)
+    end
 
-    manifold_sym  = QuoteNode(manifold_expr)
-    tensor_sym    = QuoteNode(tensor_name)
+    tensor_sym = QuoteNode(tensor_name)
     print_as_node = QuoteNode(print_as_sym)
-
-    idx_syms_expr  = :([$(map(QuoteNode, index_syms)...)])
-    cov_flags_expr = :([$(is_cov_flags...)])
-
-    sym_expr = isnothing(symmetries_expr) ? :([no_symmetry($n)]) : esc(symmetries_expr)
+    slots_expr = :([$(name_exprs...)])
 
     metric_provided = !isnothing(metric_expr)
     metric_val_expr = metric_provided ? metric_expr : nothing
@@ -292,34 +255,38 @@ macro def_tensor(tensor_expr, manifold_expr, kwargs...)
             @warn "Tensor $($(tensor_sym)) is already defined. Redefining."
         end
 
-        # ── Validate manifold ──────────────────────────────────────────
-        haskey(_MANIFOLDS, $(manifold_sym)) ||
-            error(
-                "@def_tensor: manifold $($(manifold_sym)) is not registered. " *
-                "Call @def_manifold $($(manifold_sym)) first."
+        # ── Extract VBundle names at runtime ────────────────────────────
+        local _slots = $(slots_expr)
+
+        # ── Validate VBundle symbols ───────────────────────────────────
+        for vb in _slots
+            haskey(_VBUNDLES, vb) ||
+                error(
+                    "@def_tensor: VBundle $vb is not registered. " *
+                    "Call @def_manifold or @def_vbundle first."
+                )
+        end
+
+        # ── Deduce manifold from first VBundle ─────────────────────────
+        local _manifold_sym = _VBUNDLES[_slots[1]].manifold
+
+        # ── Validate all VBundle symbols belong to same manifold ───────
+        for vb in _slots
+            _VBUNDLES[vb].manifold == _manifold_sym || error(
+                "@def_tensor: VBundle $vb belongs to manifold $(_VBUNDLES[vb].manifold), " *
+                "but first VBundle belongs to $(_manifold_sym)"
             )
-        local _M = _MANIFOLDS[$(manifold_sym)]
-
-        # ── Validate indices ───────────────────────────────────────────
-        validate_indices($(idx_syms_expr), _M.tangent_bundle)
-
-        # ── Build slots vector ─────────────────────────────────────────
-        local _is_cov = $(cov_flags_expr)
-        local _slots  = Symbol[
-            _is_cov[i] ? _M.cotangent_bundle : _M.tangent_bundle
-            for i in 1:$n
-        ]
+        end
 
         # ── Evaluate and normalize symmetries ──────────────────────────
-        local _raw_sym = $sym_expr
-        local _syms::Vector{SlotSymmetry} = if _raw_sym isa SlotSymmetry
-            [_raw_sym]
-        elseif _raw_sym isa AbstractVector
-            Vector{SlotSymmetry}(_raw_sym)
+        local _raw_sym = $symmetries_expr
+        local _syms::Vector{SlotSymmetry}
+        if _raw_sym isa AbstractVector
+            _syms = Vector{SlotSymmetry}(_raw_sym)
         else
             error(
-                "@def_tensor: symmetries must be a SlotSymmetry or " *
-                "Vector{SlotSymmetry}, got $(typeof(_raw_sym))."
+                "@def_tensor: symmetries must be a Vector{SlotSymmetry}. " *
+                "Use symmetries=[...] syntax, got $(typeof(_raw_sym))."
             )
         end
 
@@ -345,17 +312,17 @@ macro def_tensor(tensor_expr, manifold_expr, kwargs...)
                     "@def_tensor: $($(tensor_sym)) metric= :$(_given_sym) is not " *
                     "registered. Call @def_metric :$(_given_sym) first."
                 )
-            _METRICS[_given_sym] == $(manifold_sym) ||
+            _METRICS[_given_sym] == _manifold_sym ||
                 error(
                     "@def_tensor: metric :$(_given_sym) belongs to manifold " *
                     "$(_METRICS[_given_sym]), but tensor " *
-                    "$($(tensor_sym)) is on $($(manifold_sym))."
+                    "$($(tensor_sym)) is on $_manifold_sym."
                 )
             _metric_sym = _given_sym
         else
-            local _known = metrics_of_manifold($(manifold_sym))
+            local _known = metrics_of_manifold(_manifold_sym)
             if isempty(_known)
-                @warn "No metric is defined on manifold $($(manifold_sym)). " *
+                @warn "No metric is defined on manifold $_manifold_sym. " *
                       "Tensor $($(tensor_sym)) has no metric assigned; " *
                       "indices cannot be raised or lowered."
                 _metric_sym = nothing
@@ -363,7 +330,7 @@ macro def_tensor(tensor_expr, manifold_expr, kwargs...)
                 _metric_sym = _known[1]
             else
                 @warn "Multiple metrics $(tuple(_known...)) are defined on " *
-                      "manifold $($(manifold_sym)). Assigning first " *
+                      "manifold $_manifold_sym. Assigning first " *
                       "(:$(_known[1])) to tensor $($(tensor_sym)). " *
                       "Use metric=<name> to be explicit."
                 _metric_sym = _known[1]
@@ -372,7 +339,7 @@ macro def_tensor(tensor_expr, manifold_expr, kwargs...)
 
         # ── Construct and register ─────────────────────────────────────
         local _T = Tensor(
-            $(manifold_sym),
+            _manifold_sym,
             _slots,
             _syms,
             $(traceless),
@@ -385,13 +352,12 @@ macro def_tensor(tensor_expr, manifold_expr, kwargs...)
         $(esc(tensor_name)) = _T
 
         println(
-            "Defined tensor $($(tensor_sym)) on manifold $($(manifold_sym)) " *
+            "Defined tensor $($(tensor_sym)) on manifold $_manifold_sym " *
             "with $($n) slot(s), metric=$(_metric_sym)"
         )
         nothing
     end
 end
-
 
 # =========================================
 # 6.  @undef_tensor macro
@@ -445,7 +411,7 @@ end
 
 Return the names of all currently registered tensors.
 
-    @def_tensor T[-a1, -a2] M
+    @def_tensor T [cotangentM, cotangentM]
     list_tensors()   # [:T]
 """
 list_tensors() = collect(keys(_TENSORS))
