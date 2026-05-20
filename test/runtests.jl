@@ -999,6 +999,21 @@ end
         # be_a is tangentBE_M, NOT cotangentBE_M → invalid
         @test_throws ErrorException ∂[be_a]
 
+        # Wrong index kind (coordinate vs basis) for frame type
+        @test_throws ErrorException e[-be_a]
+        @test_throws ErrorException e[be_a]
+        @test_throws ErrorException θ[be_a]
+        @test_throws ErrorException dx[BEM_B1]
+        @test_throws ErrorException ∂[-BEM_B1]
+
+        # Correct moving-frame elements
+        be3 = e[-BEM_B1]
+        @test be3 isa BasisElement
+        @test be3.index isa BasisIndex
+        be4 = θ[BEM_B1]
+        @test be4 isa BasisElement
+        @test be4.index isa BasisIndex
+
         # Equality and hashing
         @test be1 == dx[be_a]
         @test hash(be1) == hash(dx[be_a])

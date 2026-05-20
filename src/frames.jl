@@ -19,7 +19,7 @@
 #   ∂[-a1]   → BasisElement(Basis(:∂, :tangentM,  :coordinate), CoordinateIndex(:a1,:cotangentM))
 #
 # basis_expansion(T[-a1,-a2])               →  T[-a1,-a2] dx[a1] ⊗ dx[a2]
-# basis_expansion(T[-a1,-a2]; frame=:moving) →  T[-a1,-a2] θ[a1]  ⊗ θ[a2]
+# basis_expansion(T[-a1,-a2]; frame=:moving) →  T[-a1,-a2] θ[A1]  ⊗ θ[A2]
 #
 # Macro hierarchy:
 #   @def_manifold  ── inline coord frame registration  (binds ∂, dx)
@@ -89,8 +89,11 @@ end
 """
     BasisElement
 
-A single element of a frame (coordinate or moving), constructed by `getindex`
-on a [`Basis`](@ref).
+A single basis vector in a coordinate or moving frame for a (co)tangent vector bundle, labeled by an index
+from the dual bundle.
+Form it by applying a [`Basis`](@ref) to an index, e.g. `dx[a1]` or `e[-A1]`.
+
+Generalize to a basis vector on any vector bundle (after [`@def_vbundle`](@ref)) by applying a [`Basis`](@ref) to an index from the dual vector bundle.
 
 ### Fields
 
@@ -120,7 +123,7 @@ The formal basis expansion of a [`TensorExpression`](@ref) in either the
 coordinate or moving frame.
 
     T[-a1,-a2] dx[a1] ⊗ dx[a2]   # coordinate frame (default)
-    T[-a1,-a2] θ[a1]  ⊗ θ[a2]    # moving frame
+    T[-a1,-a2] θ[A1]  ⊗ θ[A2]    # moving frame
 
 Display rule: no `⊗` between `component` and the first basis element;
 `⊗` only between consecutive basis elements.
@@ -281,29 +284,81 @@ end
 # 9.  getindex — Basis[AbstractIndex] → BasisElement
 # =========================================
 
+"""Example label `a1`, `-a1`, `A1`, or `-A1` for error messages."""
+function _basis_label_example(b::Basis, index_kind::Symbol)
+    on_cotangent = _VBUNDLES[b.vbundle].isdual
+    sym = if index_kind === :coordinate
+        on_cotangent ? "a1" : "-a1"
+    else
+        on_cotangent ? "A1" : "-A1"
+    end
+    return "$(b.name)[$sym]"
+end
+
+"""Sibling frame on the same vbundle, if registered (e.g. e when b is ∂)."""
+function _sibling_basis_for_kind(b::Basis, want_type::Symbol)
+    key = (b.vbundle, want_type)
+    haskey(_BASES, key) ? _BASES[key] : nothing
+end
+
 """
     Base.getindex(b::Basis, idx::AbstractIndex) -> BasisElement
 
 Construct a [`BasisElement`](@ref) by applying basis `b` to index `idx`.
 
-Validates that `idx.vbundle` is the dual of `b.vbundle`:
+Requires:
+1. `idx` from the dual vbundle of `b` (upper for cotangent bases, lower for tangent bases).
+2. `CoordinateIndex` labels for coordinate frames (`∂`, `dx`); `BasisIndex` for moving frames (`e`, `θ`).
 
-    dx[a1]    # a1 ∈ tangentM  → valid for cotangentM basis (coordinate)
-    θ[a1]     # a1 ∈ tangentM  → valid for cotangentM basis (moving)
-    ∂[-a1]    # -a1 ∈ cotangentM → valid for tangentM basis (coordinate)
-    e[-a1]    # -a1 ∈ cotangentM → valid for tangentM basis (moving)
+```julia
+dx[a1]     # coordinate frame on cotangentM
+∂[-a1]     # coordinate frame on tangentM
+θ[A1]      # moving frame on cotangentM
+e[-A1]     # moving frame on tangentM
+```
 """
 function Base.getindex(b::Basis, idx::AbstractIndex)
     haskey(_VBUNDLES, b.vbundle) ||
         error("Basis references unregistered vbundle :$(b.vbundle).")
     dual_vb = _VBUNDLES[b.vbundle].dual
-    idx.vbundle == dual_vb ||
+    if idx.vbundle != dual_vb
+        if _VBUNDLES[b.vbundle].isdual
+            error(
+                "Cannot form $(b.name)[$(idx.symbol)]: basis $(b.name) lives on :$(b.vbundle) " *
+                "(cotangent), so the label must be an upper (contravariant) index from :$dual_vb. " *
+                "Example: $(_basis_label_example(b, b.type === :coordinate ? :coordinate : :basis)). " *
+                "Got index :$(idx.symbol) on :$(idx.vbundle)$(is_down(idx) ? " (lower)" : "")."
+            )
+        else
+            error(
+                "Cannot form $(b.name)[$(idx.symbol)]: basis $(b.name) lives on :$(b.vbundle) " *
+                "(tangent), so the label must be a lower (covariant) index from :$dual_vb. " *
+                "Example: $(_basis_label_example(b, b.type === :coordinate ? :coordinate : :basis)). " *
+                "Got index :$(idx.symbol) on :$(idx.vbundle)$(is_up(idx) ? " (upper)" : "")."
+            )
+        end
+    end
+    if b.type === :coordinate && idx isa BasisIndex
+        other = _sibling_basis_for_kind(b, :moving)
+        other_hint = other === nothing ?
+            "For a moving frame use a basis index (e.g. e[-A1], θ[A1])." :
+            "For the moving frame use a basis index, e.g. $(_basis_label_example(other, :basis))."
         error(
-            "BasisElement: index vbundle :$(idx.vbundle) is not the dual of " *
-            "basis vbundle :$(b.vbundle). " *
-            "Expected index from :$dual_vb. " *
-            "Use $(b.name)[...] with an index from the dual bundle."
+            "Cannot form $(b.name)[$(idx.symbol)]: $(b.name) is a coordinate frame; " *
+            "use a coordinate index from :$dual_vb, e.g. $(_basis_label_example(b, :coordinate)). " *
+            "$other_hint Got basis index :$(idx.symbol)."
         )
+    elseif b.type === :moving && idx isa CoordinateIndex
+        other = _sibling_basis_for_kind(b, :coordinate)
+        other_hint = other === nothing ?
+            "For a coordinate frame use a coordinate index (e.g. dx[a1], ∂[-a1])." :
+            "For the coordinate frame use a coordinate index, e.g. $(_basis_label_example(other, :coordinate))."
+        error(
+            "Cannot form $(b.name)[$(idx.symbol)]: $(b.name) is a moving frame; " *
+            "use a basis index from :$dual_vb, e.g. $(_basis_label_example(b, :basis)). " *
+            "$other_hint Got coordinate index :$(idx.symbol)."
+        )
+    end
     BasisElement(b, idx)
 end
 
@@ -450,7 +505,7 @@ from the registered frame of the given `type`, with the index flipped
 to the dual vbundle:
 
     basis_expansion(T[-a1,-a2])                  # → T[-a1,-a2] dx[a1] ⊗ dx[a2]
-    basis_expansion(T[-a1,-a2]; frame=:moving)   # → T[-a1,-a2] θ[a1]  ⊗ θ[a2]
+    basis_expansion(T[-a1,-a2]; frame=:moving)   # → T[-a1,-a2] θ[A1]  ⊗ θ[A2]
     basis_expansion(T[a1, a2])                   # → T[a1,a2]   ∂[-a1] ⊗ ∂[-a2]
     basis_expansion(T[a1,-a2])                   # → T[a1,-a2]  ∂[-a1] ⊗ dx[a2]
 
@@ -462,19 +517,29 @@ function basis_expansion(te::TensorExpression; frame::Symbol=:coordinate)
         error("basis_expansion: tensor references unregistered manifold :$manifold_sym.")
 
     basis_elements = BasisElement[]
-    for (slot_vb, idx) in zip(te.tensor.slots, te.indices)
+    m = _MANIFOLDS[manifold_sym]
+    tb_basis = _VBUNDLES[m.tangent_bundle].basis_indices
+    for (i, (slot_vb, idx)) in enumerate(zip(te.tensor.slots, te.indices))
         key = (slot_vb, frame)
         haskey(_BASES, key) ||
             error(
                 "basis_expansion: no $(frame) frame registered for vbundle :$slot_vb. " *
                 "Call @def_manifold or @def_frame_bundle for this bundle first."
             )
-        b        = _BASES[key]
-        dual_vb  = _VBUNDLES[slot_vb].dual
-        dual_idx = idx isa CoordinateIndex ?
-            CoordinateIndex(idx.symbol, dual_vb) :
-            BasisIndex(idx.symbol, dual_vb)
-        push!(basis_elements, BasisElement(b, dual_idx))
+        b       = _BASES[key]
+        dual_vb = _VBUNDLES[slot_vb].dual
+        dual_idx = if frame === :coordinate
+            CoordinateIndex(idx.symbol, dual_vb)
+        else
+            i > length(tb_basis) &&
+                error(
+                    "basis_expansion: slot $i needs a moving-frame basis index, but only " *
+                    "$(length(tb_basis)) basis indices are registered on " *
+                    ":$(m.tangent_bundle)."
+                )
+            BasisIndex(tb_basis[i].symbol, dual_vb)
+        end
+        push!(basis_elements, b[dual_idx])
     end
     BasisExpansion(te, basis_elements)
 end
