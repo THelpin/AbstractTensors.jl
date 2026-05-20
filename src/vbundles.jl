@@ -20,41 +20,7 @@
 # 1.  @def_vbundle macro
 # =========================================
 
-"""
-    @def_vbundle name manifold dim [idx1, idx2, ...]
 
-Define a new vector bundle `name` of fibre dimension `dim` over `manifold`,
-and its dual bundle `dual<name>`. Bind the following variables in the
-caller's scope:
-
-- `name`       → a [`VBundle`](@ref) instance (`isdual = false`)
-- `dualname`   → a [`VBundle`](@ref) instance (`isdual = true`)
-
-Each index symbol in `[idx1, idx2, ...]` is bound to a contravariant
-[`TensorIndex`](@ref) and registered to `name` (the primal bundle). The dual
-bundle shares the same index symbols — `-A1` resolves to
-`TensorIndex(:A1, :dualname)` via [`flip`](@ref) and the `dual` field on
-[`VBundle`](@ref).
-
-`dim` accepts a concrete integer or a bare symbol for parametric bundles.
-The fibre dimension is independent of the base manifold dimension.
-
-Registers both bundles in `_VBUNDLES` and appends their names to
-`manifold.vbundles`.
-
-### Examples
-```julia
-@def_manifold M 4 [a1, a2, a3, a4]
-@def_vbundle E M 3 [A1, A2, A3]    # rank-3 bundle and its dual over M
-@def_vbundle E M r [A1, A2, A3]    # parametric fibre dimension
-
-E.isdual       # false
-dualE.isdual   # true
-A1.vbundle     # :E
--A1            # TensorIndex(:A1, :dualE)
-M.vbundles     # [:tangentM, :cotangentM, :E, :dualE]
-```
-"""
 # ── kwargs parser ─────────────────────────────────────────────────────────────
 
 # Parse only dual_name= from @def_vbundle kwargs.
@@ -92,6 +58,41 @@ function _parse_vbundle_kwargs(kwargs)
     return dual_name_override
 end
 
+"""
+    @def_vbundle name manifold dim [idx1, idx2, ...]
+
+Define a new vector bundle `name` of fibre dimension `dim` over `manifold`,
+and its dual bundle `dual<name>`. Bind the following variables in the
+caller's scope:
+
+- `name`       → a [`VBundle`](@ref) instance (`isdual = false`)
+- `dualname`   → a [`VBundle`](@ref) instance (`isdual = true`)
+
+Each index symbol in `[idx1, idx2, ...]` is bound to a contravariant
+[`TensorIndex`](@ref) and registered to `name` (the primal bundle). The dual
+bundle shares the same index symbols — `-A1` resolves to
+`TensorIndex(:A1, :dualname)` via [`flip`](@ref) and the `dual` field on
+[`VBundle`](@ref).
+
+`dim` accepts a concrete integer or a bare symbol for parametric bundles.
+The fibre dimension is independent of the base manifold dimension.
+
+Registers both bundles in `_VBUNDLES` and appends their names to
+`manifold.vbundles`.
+
+### Examples
+```julia
+@def_manifold M 4 [a1, a2, a3, a4]
+@def_vbundle E M 3 [A1, A2, A3]    # rank-3 bundle and its dual over M
+@def_vbundle E M r [A1, A2, A3]    # parametric fibre dimension
+
+E.isdual       # false
+dualE.isdual   # true
+A1.vbundle     # :E
+-A1            # TensorIndex(:A1, :dualE)
+M.vbundles     # [:tangentM, :cotangentM, :E, :dualE]
+```
+"""
 macro def_vbundle(name, manifold_name, dim, indices, kwargs...)
     name isa Symbol ||
         error("@def_vbundle: first argument must be a bundle symbol, got $name")
@@ -291,6 +292,46 @@ macro undef_vbundle(name, manifold_name)
               "Restart the kernel to fully clear the bindings."
         nothing
     end
+end
+
+# =========================================
+# 10. show methods
+# =========================================
+
+function Base.show(io::IO, v::VBundle)
+    variance_label = v.isdual ? "cotangent" : "tangent"
+    bases_str = isempty(v.bases) ? "none" :
+        join(string.(v.bases), ", ")
+    print(io, "VBundle($(v.name), $(variance_label), dual=$(v.dual), " *
+              "manifold=$(v.manifold), dim=$(v.dim), bases=[$bases_str])")
+end
+
+function Base.show(io::IO, ::MIME"text/html", v::VBundle)
+    idx_strings = map(v.indices) do ti
+        sym = string(ti.symbol)
+        is_down(ti) ? "-$(sym)" : "+$(sym)"
+    end
+    bases_html = if isempty(v.bases)
+        "<i>none</i>"
+    else
+        join([
+            "<code>$(b.name)</code> <span style=\"color:#666;\">($(b.type))</span>"
+            for b in v.bases
+        ], ", ")
+    end
+    variance_label = v.isdual ? "Dual (cotangent)" : "Standard (tangent)"
+    print(io, """
+    <div style="border:1px solid #ddd;padding:10px;border-radius:5px;background:#f4faff;">
+        <h4 style="margin-top:0;">VBundle: <span style="color:#0d6efd;">$(v.name)</span></h4>
+        <p>Base Manifold: <b>$(v.manifold)</b> | Rank: <b>$(v.dim)</b> | Type: <b>$(variance_label)</b></p>
+        <div style="background:white;border:1px inset #eee;padding:5px;margin-bottom:5px;">
+            <b>Indices:</b> $(join(idx_strings, ", "))
+        </div>
+        <div style="background:white;border:1px inset #eee;padding:5px;">
+            <b>Bases:</b> $(bases_html)
+        </div>
+    </div>
+    """)
 end
 
 

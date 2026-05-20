@@ -1056,26 +1056,44 @@ end
 
 
     # ─────────────────────────────────────────────────────────────────
-    @testset "VBundle.basis virtual property" begin
+    @testset "VBundle.bases virtual property" begin
         _clear_all_registries!()
         @def_manifold VP_M 4 [vp_a, vp_b, vp_c, vp_d]
 
-        @test tangentVP_M.basis   isa Basis
-        @test cotangentVP_M.basis isa Basis
+        @test tangentVP_M.bases   isa Vector{Basis}
+        @test cotangentVP_M.bases isa Vector{Basis}
+        @test length(tangentVP_M.bases)   == 2
+        @test length(cotangentVP_M.bases) == 2
 
-        @test tangentVP_M.basis.name    == :∂
-        @test cotangentVP_M.basis.name  == :dx
-        @test tangentVP_M.basis.vbundle   == :tangentVP_M
-        @test cotangentVP_M.basis.vbundle == :cotangentVP_M
+        @test tangentVP_M.bases[1].name    == :∂
+        @test tangentVP_M.bases[1].type    == :coordinate
+        @test tangentVP_M.bases[2].name    == :e
+        @test tangentVP_M.bases[2].type    == :moving
+        @test cotangentVP_M.bases[1].name  == :dx
+        @test cotangentVP_M.bases[1].type  == :coordinate
+        @test cotangentVP_M.bases[2].name  == :θ
+        @test cotangentVP_M.bases[2].type  == :moving
 
-        # :basis in propertynames
-        @test :basis in propertynames(tangentVP_M)
-        @test :basis in propertynames(cotangentVP_M)
+        @test tangentVP_M.bases[1].vbundle   == :tangentVP_M
+        @test cotangentVP_M.bases[1].vbundle == :cotangentVP_M
 
-        # Bundle with no frame registered → nothing
-        @def_vbundle VP_E VP_M 2 [VP_v1, VP_v2]   # no basis= kwarg
-        @test VP_E.basis === nothing
-        @test dualVP_E.basis === nothing
+        # :bases in propertynames
+        @test :bases in propertynames(tangentVP_M)
+        @test :bases in propertynames(cotangentVP_M)
+        @test :basis ∉ propertynames(tangentVP_M)
+
+        # Bundle with no frames registered → empty vector
+        @def_vbundle VP_E VP_M 2 [VP_v1, VP_v2]
+        @test VP_E.bases == Basis[]
+        @test dualVP_E.bases == Basis[]
+
+        # Standalone frame bundle adds moving basis to vbundle.bases
+        @def_frame_bundle frameVP_E VP_E vp_e vp_theta
+        @test length(VP_E.bases) == 1
+        @test VP_E.bases[1].name == :vp_e
+        @test VP_E.bases[1].type == :moving
+        @test length(dualVP_E.bases) == 1
+        @test dualVP_E.bases[1].name == :vp_theta
     end
 
 
@@ -1110,8 +1128,8 @@ end
         # No coordinate or moving frames registered for standalone vbundle
         @test !haskey(_BASES, (:VBF_E,    :coordinate))
         @test !haskey(_BASES, (:dualVBF_E,:coordinate))
-        @test VBF_E.basis    === nothing
-        @test dualVBF_E.basis === nothing
+        @test VBF_E.bases    == Basis[]
+        @test dualVBF_E.bases == Basis[]
 
         # basis= kwarg is no longer supported → error at macroexpand time
         @test_throws ErrorException macroexpand(

@@ -236,6 +236,24 @@ function basis_for_vbundle(vb::Symbol; type::Symbol=:coordinate)
     _BASES[key]
 end
 
+"""
+    bases_for_vbundle(vb::Symbol) -> Vector{Basis}
+
+Return all [`Basis`](@ref) objects registered for vbundle `vb`, in order:
+`:coordinate` first, then `:moving` (if present).
+
+    bases_for_vbundle(:tangentM)
+    # → [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :moving)]
+"""
+function bases_for_vbundle(vb::Symbol)
+    out = Basis[]
+    for frame_type in (:coordinate, :moving)
+        key = (vb, frame_type)
+        haskey(_BASES, key) && push!(out, _BASES[key])
+    end
+    return out
+end
+
 
 # =========================================
 # 9.  getindex — Basis[TensorIndex] → BasisElement
@@ -620,6 +638,6 @@ end
 
 export Basis, BasisElement, BasisExpansion, FrameBundle
 export _BASES, _FRAME_BUNDLES
-export basis_for_vbundle
+export basis_for_vbundle, bases_for_vbundle
 export @def_frame_bundle, @undef_frame_bundle
 export basis_expansion

@@ -147,6 +147,17 @@ VBundle
 
 ---
 
+## Metrics
+
+```@docs
+@def_metric
+@undef_metric
+is_metric
+list_metrics
+```
+
+---
+
 ## Signed permutations
 
 ```@docs

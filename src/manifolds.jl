@@ -49,7 +49,7 @@ Provides dot access to all metadata:
 - `dim`              : dimension
 - `tangent_bundle`   : name of the tangent bundle, e.g. `:tangentM`
 - `cotangent_bundle` : name of the cotangent (dual) bundle, e.g. `:cotangentM`
-- `vbundles`         : all associated bundle names
+- `vbundles`         : names of vector bundles with manifold as base manifold
 """
 struct Manifold
     name::Symbol
@@ -74,6 +74,7 @@ Provides dot access to all metadata:
     tangentM.isdual    # false
     tangentM.dual      # :cotangentM
     tangentM.indices   # [TensorIndex(:a1, :tangentM), ...]
+    tangentM.bases     # [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :moving)]
 
 ### Fields
 
@@ -188,33 +189,7 @@ end
 # 6. @def_manifold macro
 # =========================================
 
-"""
-    @def_manifold name dim [idx1, idx2, ...]
 
-Define a new manifold and automatically create its tangent and cotangent
-bundles. Bind the following variables in the caller's scope:
-- `name`            → a [`Manifold`](@ref) instance
-- `tangent<name>`   → a [`VBundle`](@ref) instance (`isdual = false`)
-- `cotangent<name>` → a [`VBundle`](@ref) instance (`isdual = true`)
-
-Each index symbol is bound in the caller's scope as a contravariant
-[`TensorIndex`](@ref), so unary `-` can be used directly:
-
-    a1          # TensorIndex(:a1, :tangentM)   — contravariant
-    -a1         # TensorIndex(:a1, :cotangentM) — covariant
-    [a1, -a2]   # Vector{TensorIndex}           — uniform type
-
-`dim` can be a concrete integer or a symbolic name for parametric manifolds.
-
-Register `name` in `_MANIFOLDS`, the tangent and cotangent bundles in
-`_VBUNDLES`, and all index symbols in `_INDICES`.
-
-#### Examples
-```julia
-@def_manifold M 4 [a1, a2, a3, a4]   # concrete dimension
-@def_manifold M d [b1, b2, b3, b4]   # parametric dimension
-```
-"""
 # ── shared helpers for inline frame registration ──────────────────────────────
 
 # Generate an inline code block that registers a COORDINATE frame in _BASES
@@ -357,6 +332,33 @@ function _parse_manifold_kwargs(kwargs)
     return nat_frame, nat_coframe, mov_frame, mov_coframe
 end
 
+"""
+    @def_manifold name dim [idx1, idx2, ...]
+
+Define a new manifold and automatically create its tangent and cotangent
+bundles. Bind the following variables in the caller's scope:
+- `name`            → a [`Manifold`](@ref) instance
+- `tangent<name>`   → a [`VBundle`](@ref) instance (`isdual = false`)
+- `cotangent<name>` → a [`VBundle`](@ref) instance (`isdual = true`)
+
+Each index symbol is bound in the caller's scope as a contravariant
+[`TensorIndex`](@ref), so unary `-` can be used directly:
+
+    a1          # TensorIndex(:a1, :tangentM)   — contravariant
+    -a1         # TensorIndex(:a1, :cotangentM) — covariant
+    [a1, -a2]   # Vector{TensorIndex}           — uniform type
+
+`dim` can be a concrete integer or a symbolic name for parametric manifolds.
+
+Register `name` in `_MANIFOLDS`, the tangent and cotangent bundles in
+`_VBUNDLES`, and all index symbols in `_INDICES`.
+
+#### Examples
+```julia
+@def_manifold M 4 [a1, a2, a3, a4]   # concrete dimension
+@def_manifold M d [b1, b2, b3, b4]   # parametric dimension
+```
+"""
 macro def_manifold(name, dim, indices, kwargs...)
     name isa Symbol ||
         error("@def_manifold: first argument must be a symbol, got $name")
@@ -588,21 +590,24 @@ Field access for `VBundle` instances.
 Same stale-reference guard as for `Manifold`: checks that `v` is still
 registered in `_VBUNDLES` before returning the requested field.
 
-In addition, exposes the virtual property `:basis` which returns the
-[`Basis`](@ref) registered for this bundle in `_BASES` (defined in
-`frames.jl`, populated by [`@def_frame_bundle`](@ref)). Returns `nothing`
-if no frame has been registered for this bundle yet.
+In addition, exposes the virtual property `:bases` which returns all
+[`Basis`](@ref) objects registered for this bundle in `_BASES` (defined in
+`frames.jl`, populated by [`@def_manifold`](@ref) and
+[`@def_frame_bundle`](@ref)). Returns an empty vector if no frames
+have been registered yet.
 
-    tangentM.basis    # → Basis(:∂,  :tangentM,   :coordinate)
-    cotangentM.basis  # → Basis(:dx, :cotangentM, :coordinate)
+    tangentM.bases
+    # → [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :moving)]
+
+    cotangentM.bases
+    # → [Basis(:dx, :cotangentM, :coordinate), Basis(:θ, :cotangentM, :moving)]
 
 The `_BASES` lookup is resolved at call time, so `frames.jl` need not
 be loaded before `manifolds.jl` — no forward-reference problem arises.
 """
 function Base.getproperty(v::VBundle, field::Symbol)
-    if field === :basis
-        # Returns the coordinate-frame Basis (default). _BASES defined in frames.jl.
-        return get(_BASES, (getfield(v, :name), :coordinate), nothing)
+    if field === :bases
+        return bases_for_vbundle(getfield(v, :name))
     end
     if !haskey(_VBUNDLES, getfield(v, :name))
         @warn "VBundle :$(getfield(v, :name)) has been undefined. " *
@@ -616,10 +621,10 @@ end
     Base.propertynames(v::VBundle, private::Bool=false)
 
 Return the property names available on a `VBundle`, including the
-virtual `:basis` property backed by `_BASES`.
+virtual `:bases` property backed by `_BASES`.
 """
 function Base.propertynames(::VBundle, private::Bool=false)
-    (:name, :manifold, :dim, :isdual, :dual, :indices, :basis)
+    (:name, :manifold, :dim, :isdual, :dual, :indices, :bases)
 end
 
 # =========================================
@@ -655,44 +660,6 @@ function Base.show(io::IO, ::MIME"text/html", M::Manifold)
         </table>
     </div>
     """)
-end
-
-function Base.show(io::IO, v::VBundle)
-    variance_label = v.isdual ? "cotangent" : "tangent"
-    print(io, "VBundle($(v.name), $(variance_label), dual=$(v.dual), " *
-              "manifold=$(v.manifold), dim=$(v.dim))")
-end
-
-function Base.show(io::IO, ::MIME"text/html", v::VBundle)
-    idx_strings = map(v.indices) do ti
-        sym = string(ti.symbol)
-        v.isdual ? "$(sym)&darr;" : "$(sym)&uarr;"
-    end
-    variance_label = v.isdual ? "Dual (cotangent)" : "Standard (tangent)"
-    print(io, """
-    <div style="border:1px solid #ddd;padding:10px;border-radius:5px;background:#f4faff;">
-        <h4 style="margin-top:0;">VBundle: <span style="color:#0d6efd;">$(v.name)</span></h4>
-        <p>Base Manifold: <b>$(v.manifold)</b> | Rank: <b>$(v.dim)</b> | Type: <b>$(variance_label)</b></p>
-        <div style="background:white;border:1px inset #eee;padding:5px;">
-            <b>Indices:</b> $(join(idx_strings, ", "))
-        </div>
-    </div>
-    """)
-end
-
-"""
-    show_registry()
-
-Print an HTML summary of all registered manifolds and bundles.
-Note: requires an IJulia / Pluto context for HTML rendering.
-"""
-function show_registry()
-    for (_, rec) in _MANIFOLDS
-        display(rec)
-    end
-    for (_, rec) in _VBUNDLES
-        display(rec)
-    end
 end
 
 
