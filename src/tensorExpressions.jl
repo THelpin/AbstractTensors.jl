@@ -50,19 +50,18 @@ Constructed via `getindex` on a [`Tensor`](@ref):
     g[a1, a2]               # valid: contravariant metric expression
 
 **Validation at construction time:**
-- *Arity*: `length(idxs) == T.rank`
+- `length(idxs) == T.rank`
 - *Manifold membership*: each index's home tangent bundle must match `T.manifold`
 
 **Not validated:**
 - *Variance* (up vs down) against `T.slots`. The canonical slot structure
   is metadata for index raising/lowering, not a construction gate.
-  Use `raise_index` / `lower_index` (future) to change variance explicitly.
 
 The expression is **lazy and inert**: no contraction, canonicalization, or
 symmetry reduction is performed at construction time.
 
-Fields
-------
+### Fields
+
 - `tensor`  : the [`Tensor`](@ref) this expression refers to
 - `indices` : the concrete index list for this occurrence, one per slot
 """
@@ -100,9 +99,9 @@ function _parse_index_arg(arg)::TensorIndex
 end
 
 
-# =========================================
+# ======================================================
 # 3.  Base.getindex — T[a1, -a2, ...] → TensorExpression
-# =========================================
+# ======================================================
 
 """
     Base.getindex(T::Tensor, idxs...) -> TensorExpression
@@ -290,30 +289,9 @@ function _group_index_runs(indices::Vector{TensorIndex})
 end
 
 
-# =========================================
+# ==============================================
 # 7.  Formatted output — three shared formatters
-# =========================================
-
-"""
-    _format_unicode(e::TensorExpression) -> String
-
-Produce a Unicode string suitable for terminal display.
-Covariant indices appear as subscripts, contravariant as superscripts.
-
-Examples:
-    g[-a1, -a2]   → "gₐ₁ₐ₂"
-    g[a1, a2]     → "gᵃ¹ᵃ²"
-    T[a1, -a2]    → "Tᵃ¹ₐ₂"
-"""
-function _format_unicode(e::TensorExpression)
-    runs = _group_index_runs(e.indices)
-    buf  = string(e.tensor.print_as)
-    for (is_cov, syms) in runs
-        table = is_cov ? _CHAR_TO_SUB : _CHAR_TO_SUP
-        buf  *= join(_map_chars(s, table) for s in syms)
-    end
-    buf
-end
+# ==============================================
 
 """
     _format_latex(e::TensorExpression) -> String
@@ -343,60 +321,63 @@ end
 
 """
     _format_html(e::TensorExpression) -> String
-
-Produce a styled HTML string for Jupyter / Pluto display.
+ 
+Produce an HTML string for Jupyter / Pluto display.
+The tensor name is rendered as-is; covariant indices appear in `<sub>` tags
+and contravariant indices in `<sup>` tags, with no additional styling.
 """
 function _format_html(e::TensorExpression)
     runs = _group_index_runs(e.indices)
-    name = e.tensor.print_as
-
-    style_name = "style=\"font-style:italic;font-family:'STIX Two Math',serif;\""
-    style_idx  = "style=\"font-style:italic;font-size:0.85em;font-family:'STIX Two Math',serif;\""
-
-    buf = "<span $style_name>$name</span>"
+    buf  = string(e.tensor.print_as)
     for (is_cov, syms) in runs
         tag   = is_cov ? "sub" : "sup"
-        inner = join(("<i>$s</i>" for s in syms), " ")
-        buf  *= "<$(tag) $style_idx>$inner</$(tag)>"
+        inner = join(string.(syms), " ")
+        buf  *= "<$tag>$inner</$tag>"
     end
     buf
 end
-
+ 
 
 # =========================================
 # 8.  show methods
 # =========================================
-
+ 
 """
     Base.show(io::IO, e::TensorExpression)
-
-Plain-text / REPL display using Unicode sub/superscripts.
-
-    g[-a1, -a2]   →  gₐ₁ₐ₂
-    g[a1, a2]     →  gᵃ¹ᵃ²
-    T[a1, -a2]    →  Tᵃ¹ₐ₂
+ 
+Plain-text / REPL display. Renders as `name[±idx1, ±idx2, ...]` where
+covariant indices are prefixed with `-` and contravariant indices are bare.
+ 
+    g[-a1, -a2]   →  g[-a1, -a2]
+    g[a1, a2]     →  g[a1, a2]
+    T[a1, -a2]    →  T[a1, -a2]
 """
 function Base.show(io::IO, e::TensorExpression)
-    print(io, _format_unicode(e))
+    idx_strs = map(e.indices) do idx
+        is_down(idx) ? "-$(idx.symbol)" : "$(idx.symbol)"
+    end
+    print(io, "$(e.tensor.print_as)[$(join(idx_strs, ", "))]")
 end
-
+ 
 """
     Base.show(io::IO, ::MIME"text/latex", e::TensorExpression)
-
+ 
 LaTeX display for IJulia / Jupyter notebooks.
 """
 function Base.show(io::IO, ::MIME"text/latex", e::TensorExpression)
     print(io, "\$", _format_latex(e), "\$")
 end
-
+ 
 """
     Base.show(io::IO, ::MIME"text/html", e::TensorExpression)
-
+ 
 HTML display for Jupyter / Pluto notebooks.
 """
 function Base.show(io::IO, ::MIME"text/html", e::TensorExpression)
     print(io, _format_html(e))
 end
+ 
+
 
 
 # =========================================
