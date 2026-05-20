@@ -4,7 +4,24 @@
 # A TensorExpression is a Tensor (schema) applied to a specific list of
 # TensorIndex objects. It is the REPL/notebook object you interact with:
 #
-#   F[-a1, -a2]             — sugar: -a1 / +a1 on TensorIndex (indices.jl)
+#   F[down(a1), down(a2)]   — explicit construction
+#   F[-a1, -a2]             — sugar: -a1 calls flip on TensorIndex
+#   F[a1, a2]               — also valid: contravariant expression
+#   g[a1, a2]               — valid: contravariant metric (raised by implicit g)
+#
+# Design principle: slot variance (stored on Tensor.slots) records the
+# *canonical* index placement declared at @def_tensor time. It is NOT
+# enforced at TensorExpression construction. Raising and lowering indices
+# is a separate algebraic operation (future raise_index / lower_index).
+#
+# What IS validated at construction:
+#   - Arity: number of indices must equal T.rank.
+#   - Manifold membership: each index must belong to the correct manifold.
+#     Concretely, index_home_vbundle(idx.symbol) must equal T's tangent bundle.
+#
+# What is NOT validated:
+#   - Variance (up/down) of each index against the slot declaration.
+#     T[-a1,-a2] with metric g allows g[a1,a2], T[a1,-a2], etc.
 #
 # The struct is lazy and inert: no contraction, no symmetry reduction
 # happens at construction time. Algebra (*,+) and contraction are
@@ -27,8 +44,19 @@ expression.
 
 Constructed via `getindex` on a [`Tensor`](@ref):
 
-    F[-a1, -a2]             # covariant slots via unary - on bound indices
-    F[a1, -a2]              # mixed: bare a1 or +a1; -a2 for covariant slot
+    F[down(a1), down(a2)]   # explicit TensorIndex arguments
+    F[-a1, -a2]             # sugar: -a1 = flip(a1) via Base.:- on TensorIndex
+    F[a1, -a2]              # mixed: a1 contravariant, -a2 covariant
+    g[a1, a2]               # valid: contravariant metric expression
+
+**Validation at construction time:**
+- *Arity*: `length(idxs) == T.rank`
+- *Manifold membership*: each index's home tangent bundle must match `T.manifold`
+
+**Not validated:**
+- *Variance* (up vs down) against `T.slots`. The canonical slot structure
+  is metadata for index raising/lowering, not a construction gate.
+  Use `raise_index` / `lower_index` (future) to change variance explicitly.
 
 The expression is **lazy and inert**: no contraction, canonicalization, or
 symmetry reduction is performed at construction time.
@@ -48,19 +76,32 @@ end
 # 2.  Internal argument parser
 # =========================================
 
-# Accepts TensorIndex only (includes -a1 / +a1 after indices.jl unary ops).
+# Accepts the forms a slot argument can take at runtime:
+#   TensorIndex  — used directly (includes -a1 / +a1 after unary ops)
+#   Symbol       — treated as contravariant (up); must be registered
+# Note: IndexSymbol no longer exists; all index variables in scope are TensorIndex.
 function _parse_index_arg(arg)::TensorIndex
-    arg isa TensorIndex && return arg
-    error(
-        "TensorExpression: slot argument must be a TensorIndex " *
-        "(e.g. a1 or -a1 from @def_manifold), got $(repr(arg)) " *
-        "of type $(typeof(arg))."
-    )
+    if arg isa TensorIndex
+        return arg
+    elseif arg isa Symbol
+        is_index_registered(arg) ||
+            error(
+                "TensorExpression: index :$arg is not registered. " *
+                "Call @def_manifold or @add_indices first."
+            )
+        return up(arg)
+    else
+        error(
+            "TensorExpression: cannot interpret slot argument $(repr(arg)) " *
+            "of type $(typeof(arg)). " *
+            "Use -a1 (covariant) or a1 (contravariant) TensorIndex values."
+        )
+    end
 end
 
 
 # =========================================
-# 3.  Base.getindex — F[-a1, -a2] → TensorExpression
+# 3.  Base.getindex — T[a1, -a2, ...] → TensorExpression
 # =========================================
 
 """
@@ -68,13 +109,18 @@ end
 
 Construct a [`TensorExpression`](@ref) by applying `T` to the given indices.
 
-Each slot must be a [`TensorIndex`](@ref) (typically a variable bound by
-`@def_manifold` / `@add_indices`, optionally with unary `-` or `+`).
+Accepted argument types per slot:
+- [`TensorIndex`](@ref)       — used directly (contravariant or covariant)
+- `-`[`TensorIndex`](@ref)    — covariant via `flip`; unary `-` on `TensorIndex`
+- `+`[`TensorIndex`](@ref)    — contravariant (identity); unary `+` on `TensorIndex`
 
-Validates at construction time:
+**Validated:**
 1. **Arity** — `length(idxs) == T.rank`
-2. **Manifold membership** — each index's home tangent bundle must match `T.manifold`
-3. **Slot variance** — each index's vbundle must match the corresponding slot in `T.slots`
+2. **Manifold membership** — each index's home tangent bundle matches `T.manifold`
+
+**Not validated:**
+- Variance against `T.slots`. Any up/down combination is accepted.
+  `g[a1, a2]`, `T[a1, -a2]`, `T[-a1, -a2]` are all valid expressions.
 
 # Examples
 ```julia
@@ -82,8 +128,11 @@ Validates at construction time:
 @def_metric g[-a1, -a2] M
 @def_tensor F[-a1, -a2] M symmetries=[antisymmetric(2)]
 
-F[-a1, -a2]              # covariant slots
-F[a1, -a2]               # mixed (only if F has a contravariant first slot)
+g[-a1, -a2]              # covariant metric (canonical form)
+g[a1, a2]                # contravariant metric (raised) — valid
+g[a1, -a2]               # mixed — valid
+F[-a1, -a2]              # covariant F (canonical form)
+F[a1, a2]                # contravariant F — valid
 F[-a1, -a2, -a1]         # error: rank mismatch
 ```
 """
@@ -110,35 +159,22 @@ function Base.getindex(T::Tensor, idxs...)
         )
     tb = _MANIFOLDS[T.manifold].tangent_bundle   # e.g. :tangentM
 
-    # Step 3: per-slot validation.
+    # Step 3: manifold membership validation only.
+    # Variance is NOT checked — any up/down combination is valid.
     for i in 1:n
         idx = ti[i]
 
-        # Manifold membership: index_home_vbundle always returns the tangent
-        # bundle, so comparing it to tb is the correct manifold check.
         is_index_registered(idx.symbol) ||
             error(
                 "TensorExpression: index :$(idx.symbol) is not registered."
             )
+
         home = index_home_vbundle(idx.symbol)
         home == tb ||
             error(
                 "TensorExpression: index :$(idx.symbol) has home bundle " *
                 ":$home, expected :$tb (manifold $(T.manifold))."
             )
-
-        # Variance: the index's actual vbundle must equal the slot's vbundle.
-        slot_vb = T.slots[i]
-        if idx.vbundle != slot_vb
-            cotb = _MANIFOLDS[T.manifold].cotangent_bundle
-            sym  = idx.symbol
-            hint = slot_vb == cotb ? "-$sym" : "$sym"
-            error(
-                "TensorExpression: slot $i of $(T.print_as) expects " *
-                "bundle :$slot_vb but index :$sym lives in " *
-                ":$(idx.vbundle). Use $hint."
-            )
-        end
     end
 
     TensorExpression(T, ti)
@@ -154,6 +190,36 @@ tensor_of(e::TensorExpression)  = e.tensor
 
 """Return the concrete index list of a `TensorExpression`."""
 indices_of_tensor(e::TensorExpression) = e.indices
+
+"""
+    rank_of(e::TensorExpression) -> Int
+
+Number of slots of the expression. Dispatches alongside `rank_of(::Tensor)`.
+"""
+rank_of(e::TensorExpression) = length(e.indices)
+
+"""
+    canonical_slots(e::TensorExpression) -> Vector{Symbol}
+
+Return the canonical slot vbundles from the underlying [`Tensor`](@ref) schema.
+These record the index placement declared at `@def_tensor` time and are used
+by `raise_index` / `lower_index` (future), not for construction validation.
+"""
+canonical_slots(e::TensorExpression) = e.tensor.slots
+
+"""
+    variance_matches_canonical(e::TensorExpression) -> Bool
+
+Return `true` if every index in `e` matches the canonical slot variance
+declared in `e.tensor.slots`. Useful for diagnostics and for triggering
+automatic index raising/lowering in algebraic simplification.
+"""
+function variance_matches_canonical(e::TensorExpression)
+    for (idx, slot_vb) in zip(e.indices, e.tensor.slots)
+        idx.vbundle == slot_vb || return false
+    end
+    return true
+end
 
 
 # =========================================
@@ -172,7 +238,6 @@ Base.hash(e::TensorExpression, h::UInt) =
 # =========================================
 
 # Unicode sub/superscript maps for Latin letters only.
-# Digits (0-9) are intentionally omitted and will display at normal height.
 # Characters not in the table are kept as-is (normal height fallback).
 const _CHAR_TO_SUB = Dict{Char,Char}(
     'a'=>'ₐ','e'=>'ₑ','h'=>'ₕ','i'=>'ᵢ','j'=>'ⱼ',
@@ -189,13 +254,10 @@ const _CHAR_TO_SUP = Dict{Char,Char}(
     'v'=>'ᵛ','w'=>'ʷ','x'=>'ˣ','y'=>'ʸ','z'=>'ᶻ',
 )
 
-# Map every character in a symbol name through the given table.
-# Characters not in the table are kept as-is (normal height fallback).
 function _map_chars(sym::Symbol, table::Dict{Char,Char})
     join(get(table, c, c) for c in string(sym))
 end
 
-# True if the index at position i in a TensorExpression is covariant (lower).
 function _is_covariant_idx(idx::TensorIndex)
     haskey(_VBUNDLES, idx.vbundle) && is_down(idx)
 end
@@ -236,17 +298,12 @@ end
     _format_unicode(e::TensorExpression) -> String
 
 Produce a Unicode string suitable for terminal display.
-
-Every character in each index name is mapped to its Unicode sub/superscript
-equivalent (letters and digits). Characters without a Unicode sub/sup glyph
-are passed through at normal height. No `_` / `^` separator is used — the
-visual position itself (subscript/superscript glyph) conveys variance.
+Covariant indices appear as subscripts, contravariant as superscripts.
 
 Examples:
-    g[-a1, -a2]            → "gₐ₁ₐ₂"
-    T[a1, -a2]             → "Tᵃ¹ₐ₂"
-    R[-a1, -a2, -a3, -a4]  → "Rₐ₁ₐ₂ₐ₃ₐ₄"
-    Gamma[a1, -a2]         → "Gammaᵃ¹ₐ₂"
+    g[-a1, -a2]   → "gₐ₁ₐ₂"
+    g[a1, a2]     → "gᵃ¹ᵃ²"
+    T[a1, -a2]    → "Tᵃ¹ₐ₂"
 """
 function _format_unicode(e::TensorExpression)
     runs = _group_index_runs(e.indices)
@@ -264,14 +321,13 @@ end
 Produce a LaTeX math-mode string (without surrounding `\$`).
 
 Examples:
-    g[-a1, -a2]       → "g_{a_{1} a_{2}}"
-    T[a1, -a2]        → "T^{a_{1}}_{a_{2}}"
+    g[-a1, -a2]  → "g_{a_{1} a_{2}}"
+    g[a1, a2]    → "g^{a_{1} a_{2}}"
+    T[a1, -a2]   → "T^{a_{1}}_{a_{2}}"
 """
 function _format_latex(e::TensorExpression)
-    # LaTeX: convert trailing digit sequence in a symbol name to _{digit...}.
     function latex_sym(sym::Symbol)
         s = string(sym)
-        # Split into leading letters and trailing digits.
         m = match(r"^([^\d]*)(\d+)$", s)
         m === nothing ? s : "$(m[1])_{$(m[2])}"
     end
@@ -289,23 +345,11 @@ end
     _format_html(e::TensorExpression) -> String
 
 Produce a styled HTML string for Jupyter / Pluto display.
-
-The tensor name is rendered in an italic serif math font. Consecutive
-covariant indices share one `<sub>` tag; consecutive contravariant indices
-share one `<sup>` tag. Index symbols are rendered in italic as well,
-matching standard mathematical typesetting.
-
-Examples:
-    g[-a1, -a2]  → italic g + subscript "a1 a2"
-    T[a1, -a2]   → italic T + superscript "a1" + subscript "a2"
 """
 function _format_html(e::TensorExpression)
     runs = _group_index_runs(e.indices)
     name = e.tensor.print_as
 
-    # Use a math-style font for the tensor name and index letters.
-    # font-style:italic gives the standard italic math appearance;
-    # font-family picks a serif math font when available.
     style_name = "style=\"font-style:italic;font-family:'STIX Two Math',serif;\""
     style_idx  = "style=\"font-style:italic;font-size:0.85em;font-family:'STIX Two Math',serif;\""
 
@@ -326,11 +370,11 @@ end
 """
     Base.show(io::IO, e::TensorExpression)
 
-Plain-text / REPL display using Unicode sub/superscript digits.
+Plain-text / REPL display using Unicode sub/superscripts.
 
-    g[-a1, -a2]            →  gₐ1ₐ2
-    R[-a1,-a2,-a3,-a4]     →  Rₐ1ₐ2ₐ3ₐ4
-    T[a1, -a2]             →  Tᵃ1ₐ2
+    g[-a1, -a2]   →  gₐ₁ₐ₂
+    g[a1, a2]     →  gᵃ¹ᵃ²
+    T[a1, -a2]    →  Tᵃ¹ₐ₂
 """
 function Base.show(io::IO, e::TensorExpression)
     print(io, _format_unicode(e))
@@ -339,10 +383,7 @@ end
 """
     Base.show(io::IO, ::MIME"text/latex", e::TensorExpression)
 
-LaTeX display for IJulia / Jupyter notebooks. Renders as typeset math.
-
-    g[-a1, -a2]  →  \$g_{a_{1} a_{2}}\$
-    T[a1, -a2]   →  \$T^{a_{1}}_{a_{2}}\$
+LaTeX display for IJulia / Jupyter notebooks.
 """
 function Base.show(io::IO, ::MIME"text/latex", e::TensorExpression)
     print(io, "\$", _format_latex(e), "\$")
@@ -352,16 +393,6 @@ end
     Base.show(io::IO, ::MIME"text/html", e::TensorExpression)
 
 HTML display for Jupyter / Pluto notebooks.
-
-The tensor name renders in italic serif math font. Consecutive same-variance
-indices are grouped into a single `<sub>` or `<sup>` tag, also italic.
-
-IJulia (Jupyter Julia kernel) calls this method automatically when displaying
-a `TensorExpression` in a notebook cell output — no explicit `display()` call
-needed.
-
-    g[-a1,-a2]    →  g in math font, subscript: a1 a2
-    T[a1, -a2]    →  T in math font, superscript: a1, then subscript: a2
 """
 function Base.show(io::IO, ::MIME"text/html", e::TensorExpression)
     print(io, _format_html(e))
@@ -373,4 +404,6 @@ end
 # =========================================
 
 export TensorExpression
-export tensor_of, indices_of_tensor
+export tensor_of, indices_of_tensor, canonical_slots, variance_matches_canonical
+# rank_of: already exported from tensors.jl; the TensorExpression method
+# is added here via multiple dispatch — no re-export needed.
