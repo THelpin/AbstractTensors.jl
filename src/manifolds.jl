@@ -19,7 +19,7 @@
 #   ManifoldQ[M]            → is_manifold(M)
 #   DimOfManifold[M]        → M.dim
 #   TangentBundleOfManifold → M.tangent_bundle
-#   IndicesOfVBundle        → vb.indices  (VBundle instance)
+#   IndicesOfVBundle        → vb.coordinate_indices / vb.basis_indices
 # =========================================
 
 # Depends on indices.jl being loaded first.
@@ -73,8 +73,8 @@ Provides dot access to all metadata:
     tangentM.dim       # 4
     tangentM.isdual    # false
     tangentM.dual      # :cotangentM
-    tangentM.indices   # [CoordinateIndex(:a1, :tangentM), ...]
-    tangentM.basis_indices  # [BasisIndex(:A1, :tangentM), ...]  (virtual)
+    tangentM.coordinate_indices  # [CoordinateIndex(:a1, :tangentM), ...]
+    tangentM.basis_indices       # [BasisIndex(:A1, :tangentM), ...]
     tangentM.bases     # [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :moving)]
 
 ### Fields
@@ -85,9 +85,11 @@ Provides dot access to all metadata:
 - `isdual`   : false = contravariant (upper) slots, true = covariant (lower) slots.
                Authoritative for index variance via [`is_up`](@ref) / [`is_down`](@ref).
 - `dual`     : name of the paired dual bundle, e.g. `:cotangentM` or `:dualE`
-- `indices`  : [`AbstractIndex`](@ref) objects stored on this bundle;
-               [`CoordinateIndex`](@ref) on tangent/cotangent bundles,
-               [`BasisIndex`](@ref) on `@def_vbundle` bundles
+- `coordinate_indices` : [`CoordinateIndex`](@ref) for the coordinate chart (∂ / `dx`);
+               nonempty on tangent/cotangent bundles from [`@def_manifold`](@ref)
+- `basis_indices` : [`BasisIndex`](@ref) for fibre / moving bases (`e` / `θ`);
+               populated on tangent/cotangent by [`@def_manifold`](@ref) and on custom
+               bundles by [`@def_vbundle`](@ref)
 """
 struct VBundle
     name::Symbol
@@ -95,7 +97,8 @@ struct VBundle
     dim::Dim
     isdual::Bool
     dual::Symbol
-    indices::Vector{AbstractIndex}
+    coordinate_indices::Vector{CoordinateIndex}
+    basis_indices::Vector{BasisIndex}
 end
 
 
@@ -397,14 +400,15 @@ macro def_manifold(name, dim, coord_indices, basis_indices, kwargs...)
             local _old_tb  = getfield(_MANIFOLDS[$(name_symbol)], :tangent_bundle)
             local _old_ctb = getfield(_MANIFOLDS[$(name_symbol)], :cotangent_bundle)
             if haskey(_VBUNDLES, _old_tb)
-                for _old_idx in getfield(_VBUNDLES[_old_tb], :indices)
+                local _old_vb = _VBUNDLES[_old_tb]
+                for _old_idx in getfield(_old_vb, :coordinate_indices)
+                    unregister_index!(getfield(_old_idx, :symbol))
+                end
+                for _old_idx in getfield(_old_vb, :basis_indices)
                     unregister_index!(getfield(_old_idx, :symbol))
                 end
                 delete!(_VBUNDLES, _old_tb)
                 delete!(_VBUNDLES, _old_ctb)
-            end
-            for _bs in collect(keys(_BASIS_INDICES))
-                _BASIS_INDICES[_bs] == _old_tb && unregister_basis_index!(_bs)
             end
             # Clean up all frame types from _BASES
             for _ftype in (:coordinate, :moving)
@@ -449,17 +453,19 @@ macro def_manifold(name, dim, coord_indices, basis_indices, kwargs...)
         end
 
         # ── Step 4: Build index vectors for VBundle ───────────────────────
-        local _t_indices = [CoordinateIndex(s, $(tangent_symbol))   for s in _coord_indices]
-        local _c_indices = [CoordinateIndex(s, $(cotangent_symbol)) for s in _coord_indices]
+        local _t_coord = [CoordinateIndex(s, $(tangent_symbol))   for s in _coord_indices]
+        local _c_coord = [CoordinateIndex(s, $(cotangent_symbol)) for s in _coord_indices]
+        local _t_basis = [BasisIndex(s, $(tangent_symbol))   for s in _basis_indices]
+        local _c_basis = [BasisIndex(s, $(cotangent_symbol)) for s in _basis_indices]
 
         # ── Step 5: Register bundles ─────────────────────────────────────
         _VBUNDLES[$(tangent_symbol)] = VBundle(
             $(tangent_symbol), $(name_symbol), _dim, false,
-            $(cotangent_symbol), _t_indices
+            $(cotangent_symbol), _t_coord, _t_basis
         )
         _VBUNDLES[$(cotangent_symbol)] = VBundle(
             $(cotangent_symbol), $(name_symbol), _dim, true,
-            $(tangent_symbol), _c_indices
+            $(tangent_symbol), _c_coord, _c_basis
         )
 
         # ── Step 6: Register manifold ─────────────────────────────────────
@@ -548,11 +554,12 @@ macro undef_manifold(name)
         local _ctb_name = getfield(_m_data, :cotangent_bundle)
 
         if haskey(_VBUNDLES, _tb_name)
-            for _t_idx in getfield(_VBUNDLES[_tb_name], :indices)
+            local _tb_vb = _VBUNDLES[_tb_name]
+            for _t_idx in getfield(_tb_vb, :coordinate_indices)
                 unregister_index!(getfield(_t_idx, :symbol))
             end
-            for _bs in collect(keys(_BASIS_INDICES))
-                _BASIS_INDICES[_bs] == _tb_name && unregister_basis_index!(_bs)
+            for _t_idx in getfield(_tb_vb, :basis_indices)
+                unregister_index!(getfield(_t_idx, :symbol))
             end
             delete!(_VBUNDLES, _tb_name)
             delete!(_VBUNDLES, _ctb_name)
@@ -632,9 +639,6 @@ function Base.getproperty(v::VBundle, field::Symbol)
     if field === :bases
         return bases_for_vbundle(getfield(v, :name))
     end
-    if field === :basis_indices
-        return basis_indices_for_vbundle(getfield(v, :name))
-    end
     if !haskey(_VBUNDLES, getfield(v, :name))
         @warn "VBundle :$(getfield(v, :name)) has been undefined. " *
               "Variable still holds a stale reference."
@@ -650,7 +654,7 @@ Return the property names available on a `VBundle`, including the
 virtual `:bases` property backed by `_BASES`.
 """
 function Base.propertynames(::VBundle, private::Bool=false)
-    (:name, :manifold, :dim, :isdual, :dual, :indices, :bases, :basis_indices)
+    (:name, :manifold, :dim, :isdual, :dual, :coordinate_indices, :basis_indices, :bases)
 end
 
 # =========================================

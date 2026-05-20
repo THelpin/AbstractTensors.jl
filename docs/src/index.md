@@ -80,7 +80,8 @@ M.dim              # 4
 M.tangent_bundle   # :tangentM
 tangentM.isdual    # false
 a1.vbundle         # :tangentM
-tangentM.basis_indices   # [BasisIndex(:A1, :tangentM), ...]
+tangentM.coordinate_indices  # [CoordinateIndex(:a1, :tangentM), ...]
+tangentM.basis_indices       # [BasisIndex(:A1, :tangentM), ...]
 
 # 3. Contravariant and covariant indices (bound by @def_manifold)
 a1        # CoordinateIndex(:a1, :tangentM)    — contravariant

@@ -334,8 +334,10 @@ macro add_indices(manifold_name, idx_syms...)
     manifold_name isa Symbol ||
         error("@add_indices: first argument must be a manifold symbol, got $manifold_name.")
 
-    manifold_sym = QuoteNode(manifold_name)
-    tangent_sym  = QuoteNode(Symbol("tangent", manifold_name))
+    manifold_sym  = QuoteNode(manifold_name)
+    tangent_sym   = QuoteNode(Symbol("tangent", manifold_name))
+    cotangent_sym = QuoteNode(Symbol("cotangent", manifold_name))
+    idx_sym_nodes = [s isa Symbol ? QuoteNode(s) : (s isa QuoteNode && s.value isa Symbol ? s : error("@add_indices: index names must be plain symbols, got $s")) for s in idx_syms]
 
     assignments = map(idx_syms) do s
         s isa Symbol ||
@@ -353,6 +355,28 @@ macro add_indices(manifold_name, idx_syms...)
                 "Call @def_manifold $($(manifold_sym)) first."
             )
         $(assignments...)
+        local _tb_vb  = _VBUNDLES[$(tangent_sym)]
+        local _ctb_vb = _VBUNDLES[$(cotangent_sym)]
+        local _extra_tb = CoordinateIndex[]
+        local _extra_ct = CoordinateIndex[]
+        for _s in ($(idx_sym_nodes...),)
+            push!(_extra_tb, CoordinateIndex(_s, $(tangent_sym)))
+            push!(_extra_ct, CoordinateIndex(_s, $(cotangent_sym)))
+        end
+        _VBUNDLES[$(tangent_sym)] = VBundle(
+            getfield(_tb_vb, :name), getfield(_tb_vb, :manifold), getfield(_tb_vb, :dim),
+            getfield(_tb_vb, :isdual), getfield(_tb_vb, :dual),
+            vcat(getfield(_tb_vb, :coordinate_indices), _extra_tb),
+            getfield(_tb_vb, :basis_indices),
+        )
+        _VBUNDLES[$(cotangent_sym)] = VBundle(
+            getfield(_ctb_vb, :name), getfield(_ctb_vb, :manifold), getfield(_ctb_vb, :dim),
+            getfield(_ctb_vb, :isdual), getfield(_ctb_vb, :dual),
+            vcat(getfield(_ctb_vb, :coordinate_indices), _extra_ct),
+            getfield(_ctb_vb, :basis_indices),
+        )
+        $(esc(Symbol("tangent", manifold_name)))   = _VBUNDLES[$(tangent_sym)]
+        $(esc(Symbol("cotangent", manifold_name))) = _VBUNDLES[$(cotangent_sym)]
         nothing
     end
 end

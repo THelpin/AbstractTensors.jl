@@ -154,6 +154,8 @@ end
         @test ai_a5.vbundle == :tangentAI_M
         @test ai_a5 == CoordinateIndex(:ai_a5, :tangentAI_M)
         @test -ai_a6 == CoordinateIndex(:ai_a6, :cotangentAI_M)
+        @test length(tangentAI_M.coordinate_indices) == 6
+        @test length(cotangentAI_M.coordinate_indices) == 6
 
         # adding to unregistered manifold → error
         @test_throws ErrorException @eval @add_indices FAKE_M ai_z1
@@ -175,6 +177,8 @@ end
         @test is_dual_vbundles(:dualVB_E, :VB_E)
         @test !is_dual_vbundles(:VB_E, :cotangentVB_M)
         @test [VB_A1, -VB_A2, -VB_A3] isa Vector{BasisIndex}
+        @test isempty(VB_E.coordinate_indices)
+        @test length(VB_E.basis_indices) == 3
     end
 
 
@@ -209,7 +213,10 @@ end
         @test MAN_M.tangent_bundle   == :tangentMAN_M
         @test MAN_M.cotangent_bundle == :cotangentMAN_M
         @test :tangentMAN_M in MAN_M.vbundles
-        @test tb.indices == _VBUNDLES[:tangentMAN_M].indices
+        @test tb.coordinate_indices == _VBUNDLES[:tangentMAN_M].coordinate_indices
+        @test length(tb.coordinate_indices) == 4
+        @test length(tb.basis_indices) == 4
+        @test :coordinate_indices in propertynames(tangentMAN_M)
 
         # VBundle.dual field
         @test tangentMAN_M.dual   == :cotangentMAN_M

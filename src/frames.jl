@@ -37,9 +37,10 @@
 """
     Basis
 
-A named frame for a vector bundle, of a given type (:coordinate or :moving).
-Instances are created by [`@def_manifold`](@ref) (coordinate and moving) or
-standalone [`@def_frame_bundle`](@ref) (moving only for custom bundles).
+A named frame for a vector bundle, of a given type (`:coordinate` or `:moving`).
+Instances are normally obtained from [`@def_manifold`](@ref) (coordinate and moving)
+or [`@def_frame_bundle`](@ref) (moving only on custom bundles), which bind variables
+such as `dx`, `∂`, `e`, and `θ` in the caller's scope.
 
 ### Fields
 
@@ -47,11 +48,32 @@ standalone [`@def_frame_bundle`](@ref) (moving only for custom bundles).
 - `vbundle` : the bundle this frame is for, e.g. `:cotangentM`
 - `type`    : `:coordinate` (natural frame) or `:moving` (user-defined frame)
 
+### Construction
+
+The struct constructor takes three **symbols** (note the leading `:`):
+
+```julia
+Basis(:dx, :cotangentM, :coordinate)
+Basis(:∂,  :tangentM,   :coordinate)
+Basis(:e,  :tangentM,   :moving)
+```
+
+Lookup without the bound variable:
+
+```julia
+basis_for_vbundle(:cotangentM; type=:coordinate)  # same object as dx
+bases_for_vbundle(:tangentM)                       # coordinate + moving bases
+```
+
+### Indexing
+
 Indexing a `Basis` with an [`AbstractIndex`](@ref) from the **dual** bundle
 produces a [`BasisElement`](@ref):
 
-    dx[a1]    # a1 ∈ tangentM  → BasisElement of cotangentM coordinate frame
-    e[-a1]    # -a1 ∈ cotangentM → BasisElement of tangentM moving frame
+```julia
+dx[a1]     # a1 ∈ tangentM   → cotangentM coordinate element
+e[-A1]     # -A1 ∈ cotangentM → tangentM moving element
+```
 """
 struct Basis
     name::Symbol      # display name: :dx, :∂, :e, :θ, or user-defined
@@ -77,9 +99,9 @@ on a [`Basis`](@ref).
             its vbundle is the **dual** of `basis.vbundle`
 
     dx[a1]   → BasisElement(Basis(:dx, :cotangentM, :coordinate), CoordinateIndex(:a1, :tangentM))
-    θ[a1]    → BasisElement(Basis(:θ,  :cotangentM, :moving),     CoordinateIndex(:a1, :tangentM))
+    θ[A1]    → BasisElement(Basis(:θ,  :cotangentM, :moving),     BasisIndex(:A1, :tangentM))
     ∂[-a1]   → BasisElement(Basis(:∂,  :tangentM,   :coordinate), CoordinateIndex(:a1, :cotangentM))
-    e[-a1]   → BasisElement(Basis(:e,  :tangentM,   :moving),     CoordinateIndex(:a1, :cotangentM))
+    e[-A1]   → BasisElement(Basis(:e,  :tangentM,   :moving),     BasisIndex(:A1, :cotangentM))
 """
 struct BasisElement
     basis::Basis
@@ -468,17 +490,15 @@ function basis_expansion(T::Tensor; frame::Symbol=:coordinate)
     haskey(_MANIFOLDS, T.manifold) ||
         error("basis_expansion: tensor references unregistered manifold :$(T.manifold).")
     m          = _MANIFOLDS[T.manifold]
-    tb_indices = _VBUNDLES[m.tangent_bundle].indices
+    tb_coord = _VBUNDLES[m.tangent_bundle].coordinate_indices
     n          = T.rank
-    n <= length(tb_indices) ||
+    n <= length(tb_coord) ||
         error(
-            "basis_expansion: tensor rank $n exceeds number of registered indices " *
-            "($(length(tb_indices))). Add more with @add_indices."
+            "basis_expansion: tensor rank $n exceeds number of registered coordinate indices " *
+            "($(length(tb_coord))). Add more with @add_indices."
         )
     canonical_idxs = [
-        tb_indices[i] isa CoordinateIndex ?
-            CoordinateIndex(tb_indices[i].symbol, T.slots[i]) :
-            BasisIndex(tb_indices[i].symbol, T.slots[i])
+        CoordinateIndex(tb_coord[i].symbol, T.slots[i])
         for i in 1:n
     ]
     basis_expansion(TensorExpression(T, canonical_idxs); frame=frame)
@@ -490,7 +510,7 @@ end
 # =========================================
 
 function Base.show(io::IO, b::Basis)
-    type_label = b.type === :coordinate ? "coord" : "moving"
+    type_label = b.type === :coordinate ? "coordinate" : "moving"
     print(io, "Basis($(b.name), $(b.vbundle), $(type_label))")
 end
 

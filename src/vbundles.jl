@@ -4,7 +4,7 @@
 # Design principles:
 #   - Additional vector bundles beyond the canonical tangent/cotangent pair.
 #     @def_vbundle binds E and dualE as variables in the caller's scope,
-#     all queryable via dot access: E.isdual, E.indices, etc.
+#     all queryable via dot access: E.isdual, E.basis_indices, etc.
 #   - All metadata lives in module-level registries (_VBUNDLES, _MANIFOLDS).
 #   - Indices are registered via register_basis_index! from indices.jl.
 #   - Fibre dimension is independent of the base manifold dimension.
@@ -130,7 +130,7 @@ macro def_vbundle(name, manifold_name, dim, indices, kwargs...)
         if haskey(_VBUNDLES, $(name_symbol))
             @warn "VBundle $($(name_symbol)) is already defined. Redefining."
             local _old_dual_redef = getfield(_VBUNDLES[$(name_symbol)], :dual)
-            for _old_idx in getfield(_VBUNDLES[$(name_symbol)], :indices)
+            for _old_idx in getfield(_VBUNDLES[$(name_symbol)], :basis_indices)
                 unregister_index!(getfield(_old_idx, :symbol))
             end
             local _m_old = _MANIFOLDS[$(manifold_symbol)]
@@ -165,11 +165,11 @@ macro def_vbundle(name, manifold_name, dim, indices, kwargs...)
         # ── Step 3: Register bundles in _VBUNDLES ────────────────────────
         _VBUNDLES[$(name_symbol)] = VBundle(
             $(name_symbol), $(manifold_symbol), _dim, false,
-            $(dual_symbol), _p_indices
+            $(dual_symbol), CoordinateIndex[], _p_indices
         )
         _VBUNDLES[$(dual_symbol)] = VBundle(
             $(dual_symbol), $(manifold_symbol), _dim, true,
-            $(name_symbol), _d_indices
+            $(name_symbol), CoordinateIndex[], _d_indices
         )
 
         # ── Step 4: Append to manifold's vbundles list ───────────────────
@@ -265,7 +265,7 @@ macro undef_vbundle(name, manifold_name)
         local _vb_dual  = getfield(_vb_data, :dual)   # actual dual name
 
         # ── Unregister indices ────────────────────────────────────────────
-        for _idx in getfield(_vb_data, :indices)
+        for _idx in getfield(_vb_data, :basis_indices)
             unregister_index!(getfield(_idx, :symbol))
         end
 
@@ -306,11 +306,16 @@ function Base.show(io::IO, v::VBundle)
               "manifold=$(v.manifold), dim=$(v.dim), bases=[$bases_str])")
 end
 
-function Base.show(io::IO, ::MIME"text/html", v::VBundle)
-    idx_strings = map(v.indices) do ti
+function _index_strings(idxs)
+    map(idxs) do ti
         sym = string(ti.symbol)
         is_down(ti) ? "-$(sym)" : "+$(sym)"
     end
+end
+
+function Base.show(io::IO, ::MIME"text/html", v::VBundle)
+    coord_strings = _index_strings(v.coordinate_indices)
+    basis_strings = _index_strings(v.basis_indices)
     bases_html = if isempty(v.bases)
         "<i>none</i>"
     else
@@ -320,12 +325,25 @@ function Base.show(io::IO, ::MIME"text/html", v::VBundle)
         ], ", ")
     end
     variance_label = v.isdual ? "Dual (cotangent)" : "Standard (tangent)"
+    coord_html = if isempty(coord_strings)
+        "<i>none</i>"
+    else
+        join(coord_strings, ", ")
+    end
+    basis_html = if isempty(basis_strings)
+        "<i>none</i>"
+    else
+        join(basis_strings, ", ")
+    end
     print(io, """
     <div style="border:1px solid #ddd;padding:10px;border-radius:5px;background:#f4faff;">
         <h4 style="margin-top:0;">VBundle: <span style="color:#0d6efd;">$(v.name)</span></h4>
         <p>Base Manifold: <b>$(v.manifold)</b> | Rank: <b>$(v.dim)</b> | Type: <b>$(variance_label)</b></p>
         <div style="background:white;border:1px inset #eee;padding:5px;margin-bottom:5px;">
-            <b>Indices:</b> $(join(idx_strings, ", "))
+            <b>Coordinate indices:</b> $(coord_html)
+        </div>
+        <div style="background:white;border:1px inset #eee;padding:5px;margin-bottom:5px;">
+            <b>Basis indices:</b> $(basis_html)
         </div>
         <div style="background:white;border:1px inset #eee;padding:5px;">
             <b>Bases:</b> $(bases_html)
