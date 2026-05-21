@@ -241,12 +241,37 @@ Base.:+(t::AbstractIndex) = t
 # =========================================
 # 5.  Variance predicates
 # =========================================
+"""
+    is_up(t::AbstractIndex) -> Bool
 
+Return `true` if `t` is contravariant (upper): its `vbundle` is primal
+(`isdual == false`), e.g. `:tangentM`.
+
+Also available as `t.is_up` via [`Base.getproperty`](@ref).
+
+# Examples
+
+After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`, `is_up(a1)` is
+`true` and `is_up(-a1)` is `false`.
+"""
 function is_up(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")
     !_VBUNDLES[t.vbundle].isdual
 end
 
+"""
+    is_down(t::AbstractIndex) -> Bool
+
+Return `true` if `t` is covariant (lower): its `vbundle` is dual
+(`isdual == true`), e.g. `:cotangentM`.
+
+Also available as `t.is_down` via [`Base.getproperty`](@ref).
+
+# Examples
+
+After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`, `is_down(-a1)` is
+`true` and `is_down(a1)` is `false`.
+"""
 function is_down(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")
     _VBUNDLES[t.vbundle].isdual
@@ -386,6 +411,26 @@ end
 # 10.  Validation helpers
 # =========================================
 
+"""
+    validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
+
+Check that every symbol in `syms` is a registered **coordinate** index whose
+home (primal) vbundle is `vbundle`.
+
+Throws `ErrorException` if any symbol is missing from `_COORDINATE_INDICES` or
+its home bundle differs from `vbundle`. Returns `nothing` if all checks pass.
+
+Used internally when validating lists of coordinate symbols (e.g. after
+[`@def_manifold`](@ref) or [`@add_indices`](@ref)).
+
+# Examples
+
+After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`,
+`validate_indices([:a1, :a2], :tangentM)` succeeds.
+
+`validate_indices([:a1, :NOT_REG], :tangentM)` errors if `:NOT_REG` is unknown.
+`validate_indices([:a1], :wrongBundle)` errors if `:a1` is not on `:wrongBundle`.
+"""
 function validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
     for s in syms
         is_coordinate_index(s) ||
@@ -402,6 +447,29 @@ function validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
     end
 end
 
+"""
+    validate_contraction(a::AbstractIndex, b::AbstractIndex)
+
+Check that `a` and `b` are a valid Einstein summation pair.
+
+Requires:
+
+1. Same index kind (`CoordinateIndex` with `CoordinateIndex`, or
+   `BasisIndex` with `BasisIndex`).
+2. Same symbol (`a.symbol == b.symbol`).
+3. Dual vbundles ([`is_dual_vbundles`](@ref) on `a.vbundle` and `b.vbundle`).
+
+Throws `ErrorException` if any check fails; returns `nothing` otherwise.
+
+For a non-throwing predicate, see [`contractable`](@ref).
+
+# Examples
+
+After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`, with `a1` contravariant
+and `-a1` covariant, `validate_contraction(a1, -a1)` succeeds.
+
+Pairing `a1` with `a2` (different symbols) or `a1` with `a1` (same vbundle) errors.
+"""
 function validate_contraction(a::AbstractIndex, b::AbstractIndex)
     typeof(a) === typeof(b) ||
         error(
