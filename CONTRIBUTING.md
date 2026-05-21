@@ -284,6 +284,42 @@ There is no `basis_expansion(::TensorExpression)` or `basis_expansion(::Tensor, 
 - Internal functions marked with the `!!! warning "Internal"` admonition are
   documented but not exported.
 
+**Example blocks in `src/*.jl` (tilde fences)**
+
+Docstring examples use **tilde fences**, not triple backticks:
+
+```julia
+"""
+    my_fn(x) -> Bool
+
+Description here.
+
+#### Examples
+
+~~~julia
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
+my_fn(a1)
+~~~
+"""
+```
+
+Conventions:
+
+- Opening fence: `~~~julia` on its own line; closing fence: `~~~` on its own line.
+- Prefer a `#### Examples` heading (see `src/manifolds.jl`, `src/indices.jl`).
+- Leave a blank line before `#### Examples` and before `~~~julia`.
+- Use `@ref` for cross-links to other documented symbols.
+
+**Why tildes?** Julia’s Markdown parser (and Documenter, which uses it) accepts
+both backtick and tilde fenced code blocks. This project uses `~~~julia` in
+`src/` so example blocks do not rely on nested ` ``` ` inside docstrings, and
+so AI/chat paste suggestions are less likely to corrupt files when fences are
+copied.
+
+**Not the same as `docs/src/*.md`:** manual pages use Documenter directives
+(e.g. ` ```@docs `) with backticks — that syntax is unchanged. Only **docstring
+examples inside `src/*.jl`** use `~~~julia`.
+
 **Type annotations**
 
 - Function arguments should carry type annotations where the type is meaningful
