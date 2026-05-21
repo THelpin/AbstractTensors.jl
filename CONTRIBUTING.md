@@ -217,6 +217,14 @@ Open [http://localhost:8000](http://localhost:8000).
 
 Doctests run in the `docs` environment, not via `Pkg.test()`.
 
+**Prerequisites — run once:**
+
+```julia
+julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+```
+
+**Launch tests:**
+
 ```bash
 julia --project=docs --color=yes -e '
 using Documenter: DocMeta, doctest
