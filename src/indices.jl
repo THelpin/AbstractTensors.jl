@@ -253,6 +253,12 @@ Also available as `t.is_up` via [`Base.getproperty`](@ref).
 
 After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`, `is_up(a1)` is
 `true` and `is_up(-a1)` is `false`.
+
+~~~julia
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
+is_up(a1)   # true
+is_up(-a1)  # false
+~~~
 """
 function is_up(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")
@@ -271,6 +277,12 @@ Also available as `t.is_down` via [`Base.getproperty`](@ref).
 
 After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`, `is_down(-a1)` is
 `true` and `is_down(a1)` is `false`.
+
+~~~julia
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
+is_down(-a1)  # true
+is_down(a1)   # false
+~~~
 """
 function is_down(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")

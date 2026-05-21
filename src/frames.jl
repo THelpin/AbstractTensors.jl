@@ -500,8 +500,6 @@ Expand tensor `T` slot-by-slot using canonical indices and the given [`Expansion
 - **`Coordinate`** (default): per slot use `:coordinate` basis if registered, else `:frame`.
 - **`Frame`**: per slot use `:frame` basis only.
 
-Handles mixed-variance and multi-bundle tensors. There is no `basis_expansion(T, ::Basis)` overload.
-
 # Examples
 ~~~julia
 basis_expansion(T)             # Coordinate style
