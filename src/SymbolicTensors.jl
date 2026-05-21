@@ -9,8 +9,9 @@ module SymbolicTensors
 #   tensors.jl          — Tensor, @def_tensor (needs all of the above)
 #   metrics.jl          — @def_metric
 #   tensorExpressions.jl — TensorExpression, show methods
-#   frames.jl           — Basis, BasisElement, BasisExpansion, @def_frame_bundle,
-#                         basis_expansion (needs TensorExpression, _VBUNDLES)
+#   frames.jl           — Basis (category :coordinate|:frame), BasisElement,
+#                         BasisExpansion, ExpansionStyle (Coordinate|Frame),
+#                         basis_expansion(T[, style]) — canonical indices only
 
 include("types.jl")
 include("indices.jl")

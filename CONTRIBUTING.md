@@ -46,7 +46,7 @@ Provides the symbolic infrastructure:
 
 - Manifold and vector bundle definitions
 - Abstract index notations
-- Coordinate frames and moving frames
+- Coordinate and local frame bases (`Basis.category` `:coordinate` or `:frame`)
 - Tensor definitions with slot structure and symmetry groups
 - Connection definitions with associated covariant derivatives and curvature tensors
 - Metric tensors and index raising/lowering infrastructure, Levi-civita connection and associated curvature tensors
@@ -225,6 +225,28 @@ DocMeta.setdocmeta!(SymbolicTensors, :DocTestSetup, :(using SymbolicTensors); re
 doctest(SymbolicTensors)
 '
 ```
+
+---
+
+## Frames and basis expansion
+
+Each vbundle may register two basis categories in `_BASES`:
+
+- **`:coordinate`** — coordinate-induced bases (`∂`, `dx`), indexed with
+  coordinate indices (`a1`, `-a1`).
+- **`:frame`** — arbitrary local frames (`e`, `θ`), indexed with basis indices
+  (`A1`, `-A1`).
+
+`basis_expansion` is **style-based only** (do not pass a `Basis` object):
+
+```julia
+basis_expansion(T)              # default: Coordinate style
+basis_expansion(T, Coordinate)  # per slot: :coordinate, else :frame
+basis_expansion(T, Frame)       # per slot: :frame only
+```
+
+Expansion builds canonical components from the tensor schema at `@def_tensor` time.
+There is no `basis_expansion(::TensorExpression)` or `basis_expansion(::Tensor, ::Basis)`.
 
 ---
 

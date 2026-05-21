@@ -139,7 +139,7 @@ macro def_vbundle(name, manifold_name, dim, indices, kwargs...)
                 getfield(_m_old, :vbundles)
             )
             # Clean all frame types from _BASES
-            for _ftype in (:coordinate, :moving)
+            for _ftype in (:coordinate, :frame)
                 delete!(_BASES, ($(name_symbol),  _ftype))
                 delete!(_BASES, (_old_dual_redef, _ftype))
             end
@@ -278,7 +278,7 @@ macro undef_vbundle(name, manifold_name)
         end
 
         # ── Clean up frames in _BASES ──────────────────────────────────────
-        for _ftype in (:coordinate, :moving)
+        for _ftype in (:coordinate, :frame)
             delete!(_BASES, ($(name_symbol), _ftype))
             delete!(_BASES, (_vb_dual,       _ftype))
         end
@@ -320,7 +320,7 @@ function Base.show(io::IO, ::MIME"text/html", v::VBundle)
         "<i>none</i>"
     else
         join([
-            "<code>$(b.name)</code> <span style=\"color:#666;\">($(b.type))</span>"
+            "<code>$(b.name)</code> <span style=\"color:#666;\">($(b.category))</span>"
             for b in v.bases
         ], ", ")
     end

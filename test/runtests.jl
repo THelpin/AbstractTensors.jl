@@ -805,9 +805,9 @@ end
         # @def_manifold registers coordinate frames with defaults ∂/dx
         @test haskey(_BASES, (:tangentBA_M,   :coordinate))
         @test haskey(_BASES, (:cotangentBA_M, :coordinate))
-        # ... and moving frames with defaults e/θ
-        @test haskey(_BASES, (:tangentBA_M,   :moving))
-        @test haskey(_BASES, (:cotangentBA_M, :moving))
+        # ... and frame bases with defaults e/θ
+        @test haskey(_BASES, (:tangentBA_M,   :frame))
+        @test haskey(_BASES, (:cotangentBA_M, :frame))
 
         tb_basis  = _BASES[(:tangentBA_M,   :coordinate)]
         ctb_basis = _BASES[(:cotangentBA_M, :coordinate)]
@@ -815,10 +815,10 @@ end
         @test tb_basis  isa Basis
         @test ctb_basis isa Basis
         @test tb_basis.name    == :∂
-        @test tb_basis.type    == :coordinate
+        @test tb_basis.category    == :coordinate
         @test tb_basis.vbundle == :tangentBA_M
         @test ctb_basis.name    == :dx
-        @test ctb_basis.type    == :coordinate
+        @test ctb_basis.category    == :coordinate
         @test ctb_basis.vbundle == :cotangentBA_M
 
         # Variables ∂, dx, e, θ all bound in scope
@@ -828,20 +828,20 @@ end
         @test θ  isa Basis
         @test ∂  == tb_basis
         @test dx == ctb_basis
-        @test e.type  == :moving
-        @test θ.type  == :moving
+        @test e.category  == :frame
+        @test θ.category  == :frame
 
         # basis_for_vbundle accessor (default type=:coordinate)
         @test basis_for_vbundle(:tangentBA_M)                    == tb_basis
         @test basis_for_vbundle(:cotangentBA_M)                  == ctb_basis
-        @test basis_for_vbundle(:tangentBA_M;   type=:moving)    == _BASES[(:tangentBA_M,   :moving)]
-        @test basis_for_vbundle(:cotangentBA_M; type=:moving)    == _BASES[(:cotangentBA_M, :moving)]
+        @test basis_for_vbundle(:tangentBA_M;   category=:frame)    == _BASES[(:tangentBA_M,   :frame)]
+        @test basis_for_vbundle(:cotangentBA_M; category=:frame)    == _BASES[(:cotangentBA_M, :frame)]
         @test_throws ErrorException basis_for_vbundle(:no_such_bundle)
 
         # Equality and hashing
         @test Basis(:∂, :tangentBA_M, :coordinate) == Basis(:∂, :tangentBA_M, :coordinate)
         @test Basis(:∂, :tangentBA_M, :coordinate) != Basis(:dx, :tangentBA_M, :coordinate)
-        @test Basis(:∂, :tangentBA_M, :coordinate) != Basis(:∂, :tangentBA_M, :moving)
+        @test Basis(:∂, :tangentBA_M, :coordinate) != Basis(:∂, :tangentBA_M, :frame)
         @test hash(Basis(:dx, :cotangentBA_M, :coordinate)) ==
               hash(Basis(:dx, :cotangentBA_M, :coordinate))
 
@@ -857,17 +857,17 @@ end
 
         @test _BASES[(:tangentCB_M,   :coordinate)].name == :e
         @test _BASES[(:cotangentCB_M, :coordinate)].name == :θ
-        @test _BASES[(:tangentCB_M,   :moving)].name     == :ehat
-        @test _BASES[(:cotangentCB_M, :moving)].name     == :θhat
+        @test _BASES[(:tangentCB_M,   :frame)].name     == :ehat
+        @test _BASES[(:cotangentCB_M, :frame)].name     == :θhat
 
         @test e     isa Basis
         @test θ     isa Basis
         @test ehat  isa Basis
         @test θhat  isa Basis
-        @test e.type    == :coordinate
-        @test θ.type    == :coordinate
-        @test ehat.type == :moving
-        @test θhat.type == :moving
+        @test e.category    == :coordinate
+        @test θ.category    == :coordinate
+        @test ehat.category == :frame
+        @test θhat.category == :frame
 
         # FrameBundle variables bound in scope
         @test frameCB_M   isa FrameBundle
@@ -885,22 +885,22 @@ end
     @testset "@def_frame_bundle standalone" begin
         _clear_all_registries!()
         @def_manifold FB_M 4 [fb_a, fb_b, fb_c, fb_d] [FBM_B1, FBM_B2, FBM_B3, FBM_B4]
-        # @def_manifold already registered ∂/dx (coord) and e/θ (moving)
+        # @def_manifold already registered ∂/dx (coord) and e/θ (frame)
         # for tangentFB_M/cotangentFB_M.  Test standalone for a custom bundle.
         @def_vbundle FB_E FB_M 3 [FB_A1, FB_A2, FB_A3]
 
         # 4-arg form: frame_name vbundle_name basis_name cobasis_name
         @def_frame_bundle frameFB_E FB_E fb_e fb_edual
 
-        @test haskey(_BASES, (:FB_E,    :moving))
-        @test haskey(_BASES, (:dualFB_E, :moving))
-        @test _BASES[(:FB_E,    :moving)].name == :fb_e
-        @test _BASES[(:dualFB_E,:moving)].name == :fb_edual
+        @test haskey(_BASES, (:FB_E,    :frame))
+        @test haskey(_BASES, (:dualFB_E, :frame))
+        @test _BASES[(:FB_E,    :frame)].name == :fb_e
+        @test _BASES[(:dualFB_E,:frame)].name == :fb_edual
 
         @test fb_e     isa Basis
         @test fb_edual isa Basis
-        @test fb_e.type    == :moving
-        @test fb_edual.type == :moving
+        @test fb_e.category    == :frame
+        @test fb_edual.category == :frame
 
         # FrameBundle variables bound in scope
         @test frameFB_E   isa FrameBundle
@@ -915,16 +915,16 @@ end
         @test coframeFB_E.dual    == :frameFB_E
 
         # fb_edual lives in dualFB_E; index must be from FB_E (its dual)
-        # FB_A1 is CoordinateIndex(:FB_A1, :FB_E) → fb_edual[FB_A1] is valid
+        # FB_A1 is BasisIndex(:FB_A1, :FB_E) → fb_edual[FB_A1] is valid
         be = fb_edual[FB_A1]
         @test be isa BasisElement
-        @test be.basis == _BASES[(:dualFB_E, :moving)]
+        @test be.basis == _BASES[(:dualFB_E, :frame)]
         @test be.index.vbundle == :FB_E
 
-        # fb_e lives in FB_E; index must be from dualFB_E → use -FB_A1
+        # fb_e lives in FB_E; index must be from dualFB_E → use -FB_A1 (BasisIndex on dual)
         be2 = fb_e[-FB_A1]
         @test be2 isa BasisElement
-        @test be2.basis == _BASES[(:FB_E, :moving)]
+        @test be2.basis == _BASES[(:FB_E, :frame)]
         @test be2.index.vbundle == :dualFB_E
 
         # FrameBundle show does not throw
@@ -974,7 +974,7 @@ end
         @test_throws ErrorException dx[BEM_B1]
         @test_throws ErrorException ∂[-BEM_B1]
 
-        # Correct moving-frame elements
+        # Correct frame-basis elements
         be3 = e[-BEM_B1]
         @test be3 isa BasisElement
         @test be3.index isa BasisIndex
@@ -1005,12 +1005,10 @@ end
         @def_metric cov_g COV_M
         @def_tensor COV_T [cotangentCOV_M, cotangentCOV_M]
 
-        # Via TensorExpression
-        te  = COV_T[-cov_a, -cov_b]
-        bx  = basis_expansion(te)
+        bx = basis_expansion(COV_T)
 
         @test bx isa BasisExpansion
-        @test bx.component === te
+        @test bx.component == COV_T[-cov_a, -cov_b]
         @test length(bx.basis_elements) == 2
 
         be1, be2 = bx.basis_elements
@@ -1041,8 +1039,7 @@ end
         @def_manifold CTR_M 4 [ctr_a, ctr_b, ctr_c, ctr_d] [CTRM_B1, CTRM_B2, CTRM_B3, CTRM_B4]
         @def_tensor CTR_T [tangentCTR_M, tangentCTR_M]
 
-        te = CTR_T[ctr_a, ctr_b]
-        bx = basis_expansion(te)
+        bx = basis_expansion(CTR_T)
 
         @test length(bx.basis_elements) == 2
         be1, be2 = bx.basis_elements
@@ -1061,8 +1058,7 @@ end
         @def_manifold MX_M 4 [mx_a, mx_b, mx_c, mx_d] [MXM_B1, MXM_B2, MXM_B3, MXM_B4]
         @def_tensor MX_T [tangentMX_M, cotangentMX_M]
 
-        te = MX_T[mx_a, -mx_b]
-        bx = basis_expansion(te)
+        bx = basis_expansion(MX_T)
 
         @test length(bx.basis_elements) == 2
         be1, be2 = bx.basis_elements
@@ -1088,17 +1084,17 @@ end
         @test length(cotangentVP_M.bases) == 2
 
         @test tangentVP_M.bases[1].name    == :∂
-        @test tangentVP_M.bases[1].type    == :coordinate
+        @test tangentVP_M.bases[1].category    == :coordinate
         @test tangentVP_M.bases[2].name    == :e
-        @test tangentVP_M.bases[2].type    == :moving
+        @test tangentVP_M.bases[2].category    == :frame
 
         @test length(tangentVP_M.basis_indices) == 4
         @test tangentVP_M.basis_indices[1].symbol == :VPM_B1
         @test :basis_indices in propertynames(tangentVP_M)
         @test cotangentVP_M.bases[1].name  == :dx
-        @test cotangentVP_M.bases[1].type  == :coordinate
+        @test cotangentVP_M.bases[1].category  == :coordinate
         @test cotangentVP_M.bases[2].name  == :θ
-        @test cotangentVP_M.bases[2].type  == :moving
+        @test cotangentVP_M.bases[2].category  == :frame
 
         @test tangentVP_M.bases[1].vbundle   == :tangentVP_M
         @test cotangentVP_M.bases[1].vbundle == :cotangentVP_M
@@ -1113,11 +1109,11 @@ end
         @test VP_E.bases == Basis[]
         @test dualVP_E.bases == Basis[]
 
-        # Standalone frame bundle adds moving basis to vbundle.bases
+        # Standalone frame bundle adds frame basis to vbundle.bases
         @def_frame_bundle frameVP_E VP_E vp_e vp_theta
         @test length(VP_E.bases) == 1
         @test VP_E.bases[1].name == :vp_e
-        @test VP_E.bases[1].type == :moving
+        @test VP_E.bases[1].category == :frame
         @test length(dualVP_E.bases) == 1
         @test dualVP_E.bases[1].name == :vp_theta
     end
@@ -1130,16 +1126,16 @@ end
 
         @test haskey(_BASES, (:tangentUM_BX_M,   :coordinate))
         @test haskey(_BASES, (:cotangentUM_BX_M, :coordinate))
-        @test haskey(_BASES, (:tangentUM_BX_M,   :moving))
-        @test haskey(_BASES, (:cotangentUM_BX_M, :moving))
+        @test haskey(_BASES, (:tangentUM_BX_M,   :frame))
+        @test haskey(_BASES, (:cotangentUM_BX_M, :frame))
         @test haskey(_FRAME_BUNDLES, :frameUM_BX_M)
         @test haskey(_FRAME_BUNDLES, :coframeUM_BX_M)
 
         @undef_manifold UM_BX_M
         @test !haskey(_BASES, (:tangentUM_BX_M,   :coordinate))
         @test !haskey(_BASES, (:cotangentUM_BX_M, :coordinate))
-        @test !haskey(_BASES, (:tangentUM_BX_M,   :moving))
-        @test !haskey(_BASES, (:cotangentUM_BX_M, :moving))
+        @test !haskey(_BASES, (:tangentUM_BX_M,   :frame))
+        @test !haskey(_BASES, (:cotangentUM_BX_M, :frame))
         @test !haskey(_FRAME_BUNDLES, :frameUM_BX_M)
         @test !haskey(_FRAME_BUNDLES, :coframeUM_BX_M)
     end
@@ -1181,29 +1177,29 @@ end
         @test frameFR_M.dual    == :coframeFR_M
         @test frameFR_M.basis   isa Basis
         @test frameFR_M.basis.name == :e
-        @test frameFR_M.basis.type == :moving
+        @test frameFR_M.basis.category == :frame
 
         @test coframeFR_M.name    == :coframeFR_M
         @test coframeFR_M.vbundle == :cotangentFR_M
         @test coframeFR_M.dual    == :frameFR_M
         @test coframeFR_M.basis.name == :θ
-        @test coframeFR_M.basis.type == :moving
+        @test coframeFR_M.basis.category == :frame
 
-        # e and θ bound as Basis (moving)
+        # e and θ bound as Basis (frame category)
         @test e isa Basis
         @test θ isa Basis
-        @test e.type == :moving
-        @test θ.type == :moving
+        @test e.category == :frame
+        @test θ.category == :frame
 
-        # Moving frame accessible via _BASES with :moving key
-        @test _BASES[(:tangentFR_M,   :moving)] == e
-        @test _BASES[(:cotangentFR_M, :moving)] == θ
+        # Frame basis accessible via _BASES with :frame key
+        @test _BASES[(:tangentFR_M,   :frame)] == e
+        @test _BASES[(:cotangentFR_M, :frame)] == θ
 
         # Coordinate frame still accessible
         @test ∂  isa Basis
         @test dx isa Basis
-        @test ∂.type  == :coordinate
-        @test dx.type == :coordinate
+        @test ∂.category  == :coordinate
+        @test dx.category == :coordinate
 
         # Equality and hashing for FrameBundle
         fb_copy = FrameBundle(:frameFR_M, :tangentFR_M, :coframeFR_M, e)
@@ -1220,43 +1216,47 @@ end
 
 
     # ─────────────────────────────────────────────────────────────────
-    @testset "basis_expansion — frame=:moving" begin
+    @testset "basis_expansion — ExpansionStyle" begin
         _clear_all_registries!()
         @def_manifold MV_M 4 [mv_a, mv_b, mv_c, mv_d] [MVM_B1, MVM_B2, MVM_B3, MVM_B4]
         @def_metric mv_g MV_M
         @def_tensor MV_T [cotangentMV_M, cotangentMV_M]
 
-        te = MV_T[-mv_a, -mv_b]
-
-        # Default (coordinate)
-        bx_coord = basis_expansion(te)
+        # Default (Coordinate style)
+        bx_coord = basis_expansion(MV_T)
         @test bx_coord.basis_elements[1].basis.name == :dx
-        @test bx_coord.basis_elements[1].basis.type == :coordinate
+        @test bx_coord.basis_elements[1].basis.category == :coordinate
+        @test bx_coord.component == MV_T[-mv_a, -mv_b]
 
-        # Moving frame
-        bx_mov = basis_expansion(te; frame=:moving)
-        @test bx_mov isa BasisExpansion
-        @test bx_mov.component === te
-        @test length(bx_mov.basis_elements) == 2
+        # Frame style
+        bx_frame = basis_expansion(MV_T, Frame)
+        @test bx_frame isa BasisExpansion
+        @test bx_frame.component == MV_T[-MVM_B1, -MVM_B2]
+        @test length(bx_frame.basis_elements) == 2
 
-        be1, be2 = bx_mov.basis_elements
-        @test be1.basis.name   == :θ
-        @test be1.basis.type   == :moving
-        @test be2.basis.name   == :θ
+        be1, be2 = bx_frame.basis_elements
+        @test be1.basis.name == :θ
+        @test be1.basis.category == :frame
+        @test be2.basis.name == :θ
         @test !be1.index.is_down  # upper index (from tangentMV_M)
 
-        # Via Tensor overload
-        bx_t = basis_expansion(MV_T; frame=:moving)
-        @test bx_t isa BasisExpansion
-        @test bx_t.basis_elements[1].basis.type == :moving
+        # show does not throw for frame expansion
+        @test (repr(bx_frame); true)
+        @test (repr("text/latex", bx_frame); true)
+        @test (repr("text/html",  bx_frame); true)
 
-        # show does not throw for moving expansion
-        @test (repr(bx_mov); true)
-        @test (repr("text/latex", bx_mov); true)
-        @test (repr("text/html",  bx_mov); true)
+        # Frame style on vbundle without frame basis → error
+        _clear_all_registries!()
+        @def_manifold ES_M 4 [es_a, es_b, es_c, es_d] [ESM_B1, ESM_B2, ESM_B3, ESM_B4]
+        @def_vbundle ES_E ES_M 2 [ES_v1, ES_v2]
+        @def_tensor ES_T [ES_E, ES_E]
+        @test_throws ErrorException basis_expansion(ES_T, Frame)
 
-        # Unknown frame type → error
-        @test_throws ErrorException basis_expansion(te; frame=:unknown_frame)
+        # Coordinate style falls back to :frame on frame-only vbundles
+        @def_frame_bundle frameES_E ES_E es_e es_theta
+        bx_fb = basis_expansion(ES_T, Coordinate)
+        @test bx_fb.basis_elements[1].basis.category == :frame
+        @test bx_fb.basis_elements[1].basis.name == :es_e
     end
 
 end # @testset "SymbolicTensors.jl"

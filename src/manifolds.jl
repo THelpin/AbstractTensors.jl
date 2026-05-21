@@ -75,7 +75,7 @@ Provides dot access to all metadata:
     tangentM.dual      # :cotangentM
     tangentM.coordinate_indices  # [CoordinateIndex(:a1, :tangentM), ...]
     tangentM.basis_indices       # [BasisIndex(:A1, :tangentM), ...]
-    tangentM.bases     # [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :moving)]
+    tangentM.bases     # [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :frame)]
 
 ### Fields
 
@@ -234,7 +234,7 @@ function _gen_coord_frame_registration_expr(
 end
 
 # Generate an inline code block that registers a MOVING frame in _BASES
-# (key: (vbundle, :moving)), creates FrameBundle structs, and binds all four
+# (key: (vbundle, :frame)), creates FrameBundle structs, and binds all four
 # variables in the CALLER's scope via esc.
 #
 # frame_name   : Symbol for the primal frame bundle (e.g. :frameM)
@@ -257,11 +257,11 @@ function _gen_moving_frame_registration_expr(
     cq           = QuoteNode(cobasis_sym)
     fn_q         = QuoteNode(frame_name)
     cfn_q        = QuoteNode(coframe_name)
-    primal_key   = QuoteNode((primal_q.value, :moving))
-    dual_key     = QuoteNode((dual_q.value,   :moving))
+    primal_key   = QuoteNode((primal_q.value, :frame))
+    dual_key     = QuoteNode((dual_q.value,   :frame))
     quote
-        _BASES[$(primal_key)] = Basis($(bq), $(primal_q), :moving)
-        _BASES[$(dual_key)]   = Basis($(cq), $(dual_q),   :moving)
+        _BASES[$(primal_key)] = Basis($(bq), $(primal_q), :frame)
+        _BASES[$(dual_key)]   = Basis($(cq), $(dual_q),   :frame)
 
         _FRAME_BUNDLES[$(fn_q)]  = FrameBundle($(fn_q),  $(primal_q), $(cfn_q), _BASES[$(primal_key)])
         _FRAME_BUNDLES[$(cfn_q)] = FrameBundle($(cfn_q), $(dual_q),   $(fn_q),  _BASES[$(dual_key)])
@@ -411,7 +411,7 @@ macro def_manifold(name, dim, coord_indices, basis_indices, kwargs...)
                 delete!(_VBUNDLES, _old_ctb)
             end
             # Clean up all frame types from _BASES
-            for _ftype in (:coordinate, :moving)
+            for _ftype in (:coordinate, :frame)
                 delete!(_BASES, (_old_tb,  _ftype))
                 delete!(_BASES, (_old_ctb, _ftype))
             end
@@ -566,7 +566,7 @@ macro undef_manifold(name)
         end
 
         # Clean up all frame types from _BASES
-        for _ftype in (:coordinate, :moving)
+        for _ftype in (:coordinate, :frame)
             delete!(_BASES, (_tb_name,  _ftype))
             delete!(_BASES, (_ctb_name, _ftype))
         end
@@ -627,10 +627,10 @@ In addition, exposes the virtual property `:bases` which returns all
 have been registered yet.
 
     tangentM.bases
-    # → [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :moving)]
+    # → [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :frame)]
 
     cotangentM.bases
-    # → [Basis(:dx, :cotangentM, :coordinate), Basis(:θ, :cotangentM, :moving)]
+    # → [Basis(:dx, :cotangentM, :coordinate), Basis(:θ, :cotangentM, :frame)]
 
 The `_BASES` lookup is resolved at call time, so `frames.jl` need not
 be loaded before `manifolds.jl` — no forward-reference problem arises.

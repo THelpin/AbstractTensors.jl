@@ -1,87 +1,82 @@
 # =========================================
 # frames.jl — SymbolicTensors.jl
 #
-# Frame bundles: coordinate frames (∂/dx) and moving frames (e/θ).
+# Frame bundles: coordinate frames (∂/dx) and arbitrary local frames (e/θ).
 #
-# Each manifold carries two frame types for its tangent/cotangent bundles:
+# Each vbundle may carry two basis categories:
 #
-#   :coordinate  — the natural coordinate frame (∂ for tangentM, dx for cotangentM)
-#                  registered by @def_manifold as part of vbundle creation
-#   :moving      — a user-defined moving frame (e/θ by default)
-#                  registered by @def_frame_bundle and bound as FrameBundle variables
+#   :coordinate — coordinate-induced frame/coframe when geometrically available
+#                 registered by @def_manifold as part of vbundle creation
+#   :frame      — arbitrary chosen local frame/coframe
+#                 registered by @def_frame_bundle and bound as FrameBundle variables
 #
 # Registry:
 #   _BASES[(vbundle, :coordinate)] → Basis(:∂,  :tangentM,   :coordinate)
-#   _BASES[(vbundle, :moving)]     → Basis(:e,   :tangentM,   :moving)
+#   _BASES[(vbundle, :frame)]      → Basis(:e,  :tangentM,   :frame)
 #
 # Convention for BasisElement indexing:
 #   dx[a1]   → BasisElement(Basis(:dx,:cotangentM,:coordinate), CoordinateIndex(:a1,:tangentM))
 #   ∂[-a1]   → BasisElement(Basis(:∂, :tangentM,  :coordinate), CoordinateIndex(:a1,:cotangentM))
 #
-# basis_expansion works on Tensor only (not TensorExpression):
+# Expansion Styles (New Architecture):
+# basis_expansion now operates on a per-slot basis allowing mixed tensors.
 #
-#   basis_expansion(T)                    →  T_{a1 a2} dx^{a1} ⊗ dx^{a2}
-#   basis_expansion(T, dx)                →  same, via explicit Basis object
-#   basis_expansion(T; frame=:moving)     →  T_{a1 a2} θ^{a1} ⊗ θ^{a2}
-#   basis_expansion(T, frameM)            →  same, via FrameBundle object
-#
-# Design: basis_expansion acts on the abstract Tensor schema, not on a
-# particular index placement. It always uses the canonical slot structure
-# declared at @def_tensor time and the first rank(T) registered coordinate
-# indices for the component labels.
-#
-# Frame selection hierarchy (most to least type-safe):
-#   1. basis_expansion(T, b::Basis)        — pass a Basis object directly
-#   2. basis_expansion(T, fb::FrameBundle) — pass a FrameBundle; uses fb.basis
-#   3. basis_expansion(T; frame=:Symbol)   — looked up in _BASES; validated early
-#
-# Macro hierarchy:
-#   @def_manifold  ── inline coord frame registration  (binds ∂, dx)
-#                  └─ inline moving frame registration (binds e, θ, frameM, coframeM)
-#   @def_frame_bundle ── standalone primitive for custom vbundles
+#   basis_expansion(T)             → defaults to Coordinate style
+#   basis_expansion(T, Coordinate) → Per-slot: uses :coordinate if available, falls back to :frame
+#   basis_expansion(T, Frame)      → Per-slot: strictly uses :frame for all slots
 #
 # Depends on: indices.jl, manifolds.jl, tensorExpressions.jl
 # =========================================
 
+# =========================================
+# 1.  Expansion Styles
+# =========================================
+
+abstract type ExpansionStyle end
+
+struct CoordinateStyle <: ExpansionStyle end
+struct FrameStyle <: ExpansionStyle end
+
+const Coordinate = CoordinateStyle()
+const Frame      = FrameStyle()
 
 # =========================================
-# 1.  Basis struct
+# 2.  Basis struct
 # =========================================
 
 """
     Basis
 
-A named frame for a vector bundle, of a given type (`:coordinate` or `:moving`).
-Instances are created by [`@def_manifold`](@ref) (coordinate and moving) or
-standalone [`@def_frame_bundle`](@ref) (moving only for custom bundles).
+A named frame for a vector bundle, of a given category (`:coordinate` or `:frame`).
+Instances are created by [`@def_manifold`](@ref) (coordinate and frame) or
+standalone [`@def_frame_bundle`](@ref) (frame only for custom bundles).
 
 ### Fields
 
-- `name`    : display name, e.g. `:dx`, `:∂`, `:e`, `:θ`
-- `vbundle` : the bundle this frame is for, e.g. `:cotangentM`
-- `type`    : `:coordinate` (natural frame) or `:moving` (user-defined frame)
+- `name`     : display name, e.g. `:dx`, `:∂`, `:e`, `:θ`
+- `vbundle`  : the bundle this frame is for, e.g. `:cotangentM`
+- `category` : `:coordinate` (coordinate-induced) or `:frame` (arbitrary chosen local frame)
 
 Indexing a `Basis` with an [`AbstractIndex`](@ref) from the **dual** bundle
 produces a [`BasisElement`](@ref):
 
     dx[a1]    # a1 ∈ tangentM  → BasisElement of cotangentM coordinate frame
-    e[-a1]    # -a1 ∈ cotangentM → BasisElement of tangentM moving frame
+    e[-a1]    # -a1 ∈ cotangentM → BasisElement of tangentM arbitrary frame
 """
 struct Basis
     name::Symbol      # display name: :dx, :∂, :e, :θ, or user-defined
     vbundle::Symbol   # bundle this frame is for: :cotangentM, :tangentM, etc.
-    type::Symbol      # :coordinate  or  :moving
+    category::Symbol  # :coordinate or :frame
 end
 
-
 # =========================================
-# 2.  BasisElement struct
+# 3.  BasisElement struct
 # =========================================
 
 """
     BasisElement
 
-A single element of a frame (coordinate or moving), constructed by `getindex`
+A single element of a basis (coordinate or frame), constructed by `getindex`
 on a [`Basis`](@ref).
 
 ### Fields
@@ -91,33 +86,30 @@ on a [`Basis`](@ref).
             its vbundle is the **dual** of `basis.vbundle`
 
     dx[a1]   → BasisElement(Basis(:dx, :cotangentM, :coordinate), CoordinateIndex(:a1, :tangentM))
-    θ[a1]    → BasisElement(Basis(:θ,  :cotangentM, :moving),     CoordinateIndex(:a1, :tangentM))
+    θ[A1]    → BasisElement(Basis(:θ,  :cotangentM, :frame),      BasisIndex(:A1, :tangentM))
     ∂[-a1]   → BasisElement(Basis(:∂,  :tangentM,   :coordinate), CoordinateIndex(:a1, :cotangentM))
-    e[-a1]   → BasisElement(Basis(:e,  :tangentM,   :moving),     CoordinateIndex(:a1, :cotangentM))
+    e[-A1]   → BasisElement(Basis(:e,  :tangentM,   :frame),      BasisIndex(:A1, :cotangentM))
 """
 struct BasisElement
     basis::Basis
     index::AbstractIndex   # vbundle is the DUAL of basis.vbundle
 end
 
-
 # =========================================
-# 3.  BasisExpansion struct
+# 4.  BasisExpansion struct
 # =========================================
 
 """
     BasisExpansion
 
-The formal basis expansion of a [`Tensor`](@ref) in either the coordinate
-or moving frame, using canonical indices.
+The formal basis expansion of a [`Tensor`](@ref) using canonical slot structures.
 
 The `component` field is a [`TensorExpression`](@ref) built from the
-tensor's canonical slot structure, using the first `rank(T)` registered
-coordinate indices. The `basis_elements` give one [`BasisElement`](@ref)
-per slot.
+tensor's canonical slot structure. The `basis_elements` give one
+[`BasisElement`](@ref) per slot.
 
-    T[-a1,-a2] dx[a1] ⊗ dx[a2]   # coordinate frame (default)
-    T[-a1,-a2] θ[a1]  ⊗ θ[a2]    # moving frame
+    T[-a1,-a2] dx[a1] ⊗ dx[a2]   # coordinate style
+    T[-A1,-A2] θ[A1]  ⊗ θ[A2]    # frame style
 
 Display rule: no `⊗` between `component` and the first basis element;
 `⊗` only between consecutive basis elements.
@@ -132,15 +124,14 @@ struct BasisExpansion
     basis_elements::Vector{BasisElement}
 end
 
-
 # =========================================
-# 4.  FrameBundle struct
+# 5.  FrameBundle struct
 # =========================================
 
 """
     FrameBundle
 
-A moving frame bundle associated with a vector bundle.
+An arbitrary moving frame bundle associated with a vector bundle.
 Created by [`@def_frame_bundle`](@ref) (standalone) or automatically by
 [`@def_manifold`](@ref).
 
@@ -149,35 +140,34 @@ Created by [`@def_frame_bundle`](@ref) (standalone) or automatically by
 - `name`    : symbol name, e.g. `:frameM`
 - `vbundle` : the underlying vector bundle, e.g. `:tangentM`
 - `dual`    : name of the dual frame bundle, e.g. `:coframeM`
-- `basis`   : the moving [`Basis`](@ref) (type `:moving`) for this bundle
+- `basis`   : the frame [`Basis`](@ref) (category `:frame`) for this bundle
 
-    frameM.basis    # → Basis(:e, :tangentM, :moving)
-    coframeM.basis  # → Basis(:θ, :cotangentM, :moving)
+    frameM.basis    # → Basis(:e, :tangentM, :frame)
+    coframeM.basis  # → Basis(:θ, :cotangentM, :frame)
 """
 struct FrameBundle
     name::Symbol       # :frameM
     vbundle::Symbol    # :tangentM  — the underlying VBundle
     dual::Symbol       # :coframeM
-    basis::Basis       # Basis(:e, :tangentM, :moving)
+    basis::Basis       # Basis(:e, :tangentM, :frame)
 end
 
-
 # =========================================
-# 5.  Module-level registries
+# 6.  Module-level registries
 # =========================================
 
 """
     _BASES :: Dict{Tuple{Symbol,Symbol}, Basis}
 
-Maps `(vbundle_name, frame_type)` to its [`Basis`](@ref).
+Maps `(vbundle_name, category)` to its [`Basis`](@ref).
 
     _BASES[(:cotangentM, :coordinate)] → Basis(:dx, :cotangentM, :coordinate)
     _BASES[(:tangentM,   :coordinate)] → Basis(:∂,  :tangentM,   :coordinate)
-    _BASES[(:cotangentM, :moving)]     → Basis(:θ,  :cotangentM, :moving)
-    _BASES[(:tangentM,   :moving)]     → Basis(:e,  :tangentM,   :moving)
+    _BASES[(:cotangentM, :frame)]      → Basis(:θ,  :cotangentM, :frame)
+    _BASES[(:tangentM,   :frame)]      → Basis(:e,  :tangentM,   :frame)
 
-Populated by [`@def_manifold`](@ref) (both types) and standalone
-[`@def_frame_bundle`](@ref) (moving only). Do not mutate directly.
+Populated by [`@def_manifold`](@ref) (both categories) and standalone
+[`@def_frame_bundle`](@ref) (frame only). Do not mutate directly.
 """
 const _BASES = Dict{Tuple{Symbol,Symbol}, Basis}()
 
@@ -193,17 +183,16 @@ Populated by [`@def_manifold`](@ref) and [`@def_frame_bundle`](@ref).
 """
 const _FRAME_BUNDLES = Dict{Symbol, FrameBundle}()
 
-# The two valid frame type symbols.  Checked in basis_expansion(::Tensor; frame=...).
-const _VALID_FRAME_TYPES = (:coordinate, :moving)
-
+# The two valid basis categories.
+const _VALID_BASIS_CATEGORIES = (:coordinate, :frame)
 
 # =========================================
-# 6.  Equality and hashing
+# 7.  Equality and hashing
 # =========================================
 
 Base.:(==)(a::Basis, b::Basis) =
-    a.name == b.name && a.vbundle == b.vbundle && a.type == b.type
-Base.hash(b::Basis, h::UInt) = hash((b.name, b.vbundle, b.type), h)
+    a.name == b.name && a.vbundle == b.vbundle && a.category == b.category
+Base.hash(b::Basis, h::UInt) = hash((b.name, b.vbundle, b.category), h)
 
 Base.:(==)(a::BasisElement, b::BasisElement) = a.basis == b.basis && a.index == b.index
 Base.hash(be::BasisElement, h::UInt) = hash((be.basis, be.index), h)
@@ -212,18 +201,10 @@ Base.:(==)(a::FrameBundle, b::FrameBundle) =
     a.name == b.name && a.vbundle == b.vbundle && a.dual == b.dual
 Base.hash(fb::FrameBundle, h::UInt) = hash((fb.name, fb.vbundle, fb.dual), h)
 
-
 # =========================================
-# 7.  Stale-reference guard for FrameBundle
+# 8.  Stale-reference guard for FrameBundle
 # =========================================
 
-"""
-    Base.getproperty(fb::FrameBundle, field::Symbol)
-
-Field access for `FrameBundle` instances.
-Checks that `fb` is still registered in `_FRAME_BUNDLES` before returning the
-requested field, turning stale references into an immediate warning.
-"""
 function Base.getproperty(fb::FrameBundle, field::Symbol)
     if !haskey(_FRAME_BUNDLES, getfield(fb, :name))
         @warn "FrameBundle :$(getfield(fb, :name)) has been undefined. " *
@@ -237,22 +218,21 @@ function Base.propertynames(::FrameBundle, private::Bool=false)
     (:name, :vbundle, :dual, :basis)
 end
 
-
 # =========================================
-# 8.  Registry accessors
+# 9.  Registry accessors
 # =========================================
 
 """
-    basis_for_vbundle(vb::Symbol; type::Symbol=:coordinate) -> Basis
+    basis_for_vbundle(vb::Symbol; category::Symbol=:coordinate) -> Basis
 
-Return the [`Basis`](@ref) of the given `type` registered for vbundle `vb`.
-Errors if no such frame has been registered.
+Return the [`Basis`](@ref) of the given `category` registered for vbundle `vb`.
+Errors if no such basis has been registered.
 """
-function basis_for_vbundle(vb::Symbol; type::Symbol=:coordinate)
-    key = (vb, type)
+function basis_for_vbundle(vb::Symbol; category::Symbol=:coordinate)
+    key = (vb, category)
     haskey(_BASES, key) ||
         error(
-            "No $(type) frame registered for vbundle :$vb. " *
+            "No $(category) basis registered for vbundle :$vb. " *
             "Call @def_manifold or @def_frame_bundle first."
         )
     _BASES[key]
@@ -262,36 +242,40 @@ end
     bases_for_vbundle(vb::Symbol) -> Vector{Basis}
 
 Return all [`Basis`](@ref) objects registered for vbundle `vb`, in order:
-`:coordinate` first, then `:moving` (if present).
+`:coordinate` first, then `:frame` (if present).
 
     bases_for_vbundle(:tangentM)
-    # → [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :moving)]
+    # → [Basis(:∂, :tangentM, :coordinate), Basis(:e, :tangentM, :frame)]
 """
 function bases_for_vbundle(vb::Symbol)
     out = Basis[]
-    for frame_type in (:coordinate, :moving)
-        key = (vb, frame_type)
+    for cat in _VALID_BASIS_CATEGORIES
+        key = (vb, cat)
         haskey(_BASES, key) && push!(out, _BASES[key])
     end
     return out
 end
 
-
 # =========================================
-# 9.  getindex — Basis[AbstractIndex] → BasisElement
+# 10. getindex — Basis[AbstractIndex] → BasisElement
 # =========================================
 
 """
     Base.getindex(b::Basis, idx::AbstractIndex) -> BasisElement
 
 Construct a [`BasisElement`](@ref) by applying basis `b` to index `idx`.
+Validates:
+1. `idx.vbundle` is the dual of `b.vbundle`
+2. Index kind matches basis category: coordinate bases use [`CoordinateIndex`](@ref),
+   frame bases use [`BasisIndex`](@ref)
 
-Validates that `idx.vbundle` is the dual of `b.vbundle`:
-
-    dx[a1]    # a1 ∈ tangentM  → valid for cotangentM basis (coordinate)
-    θ[a1]     # a1 ∈ tangentM  → valid for cotangentM basis (moving)
-    ∂[-a1]    # -a1 ∈ cotangentM → valid for tangentM basis (coordinate)
-    e[-a1]    # -a1 ∈ cotangentM → valid for tangentM basis (moving)
+# Examples
+```julia
+dx[a1]      # a1 ∈ tangentM  — coordinate index on cotangent coordinate basis
+∂[-a1]      # -a1 ∈ cotangentM — coordinate index on tangent coordinate basis
+e[-A1]      # -A1 ∈ cotangentM — basis index on tangent frame basis
+θ[A1]       # A1 ∈ tangentM  — basis index on cotangent frame basis
+```
 """
 function Base.getindex(b::Basis, idx::AbstractIndex)
     haskey(_VBUNDLES, b.vbundle) ||
@@ -304,45 +288,46 @@ function Base.getindex(b::Basis, idx::AbstractIndex)
             "Expected index from :$dual_vb. " *
             "Use $(b.name)[...] with an index from the dual bundle."
         )
+        
+    if b.category === :coordinate
+        idx isa CoordinateIndex ||
+            error(
+                "BasisElement: coordinate basis :$(b.name) requires a " *
+                "CoordinateIndex (e.g. a1 or -a1); got $(typeof(idx))."
+            )
+    elseif b.category === :frame
+        idx isa BasisIndex ||
+            error(
+                "BasisElement: frame basis :$(b.name) requires a " *
+                "BasisIndex (e.g. A1 or -A1); got $(typeof(idx))."
+            )
+    end
+
     BasisElement(b, idx)
 end
 
-
 # =========================================
-# 10.  @def_frame_bundle macro
+# 11. @def_frame_bundle macro
 # =========================================
-
 """
     @def_frame_bundle frame_name vbundle_name basis_name cobasis_name
 
-Create a moving frame bundle for `vbundle_name` and its dual bundle.
+Create an arbitrary local frame bundle for `vbundle_name` and its dual.
 
-- `frame_name`    : name for the primal frame bundle (e.g. `frameE`)
-- `vbundle_name`  : the primal vbundle (must already be in `_VBUNDLES`)
-- `basis_name`    : moving basis name for the primal bundle (e.g. `e`)
-- `cobasis_name`  : moving basis name for the dual bundle (e.g. `θ`)
+- `frame_name`   : primal frame bundle name (e.g. `frameE`)
+- `vbundle_name` : primal vbundle (must be in `_VBUNDLES`)
+- `basis_name`   : frame basis for the primal bundle (e.g. `e`)
+- `cobasis_name` : frame basis for the dual bundle (e.g. `θ`)
 
-The dual frame bundle name is derived as `Symbol("co", frame_name)`
-(e.g. `frameE` → `coframeE`).
+Dual frame bundle name: `Symbol("co", frame_name)` (e.g. `frameE` → `coframeE`).
 
-Registers:
-- `_BASES[(vbundle_name, :moving)]` and `_BASES[(dual_vbundle, :moving)]`
-- `_FRAME_BUNDLES[frame_name]` and `_FRAME_BUNDLES[coframe_name]`
+Registers `_BASES[(vbundle, :frame)]` and `_FRAME_BUNDLES`.
 
-Binds `frame_name`, `coframe_name`, `basis_name`, and `cobasis_name`
-as variables in the caller's scope.
-
-The two basis names must differ.
-
-# Examples
+# Example
 ```julia
-@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]   # frameM/coframeM already created with e/θ
-
-# Standalone use for a custom vbundle:
 @def_vbundle E M 3 [A1, A2, A3]
 @def_frame_bundle frameE E eE θE
-# frameE and coframeE bound as FrameBundle; eE and θE bound as Basis (moving)
-eE[-A1]   # BasisElement of E moving frame, labeled by dualE index
+eE[-A1]   # BasisElement of E frame, labeled by dualE index
 ```
 """
 macro def_frame_bundle(frame_name, vbundle_name, basis_name, cobasis_name)
@@ -359,14 +344,13 @@ macro def_frame_bundle(frame_name, vbundle_name, basis_name, cobasis_name)
             "@def_frame_bundle: basis_name and cobasis_name must be different, " *
             "both given as :$basis_name"
         )
-
     coframe_name   = Symbol("co", frame_name)
     fn_q           = QuoteNode(frame_name)
     cfn_q          = QuoteNode(coframe_name)
     vb_q           = QuoteNode(vbundle_name)
     basis_q        = QuoteNode(basis_name)
     cobasis_q      = QuoteNode(cobasis_name)
-    primal_key_q   = QuoteNode((vbundle_name, :moving))
+    primal_key_q   = QuoteNode((vbundle_name, :frame))
 
     quote
         haskey(_VBUNDLES, $(vb_q)) ||
@@ -376,15 +360,15 @@ macro def_frame_bundle(frame_name, vbundle_name, basis_name, cobasis_name)
             )
 
         local _fb_dual_vb     = _VBUNDLES[$(vb_q)].dual
-        local _fb_dual_key    = (_fb_dual_vb, :moving)
+        local _fb_dual_key    = (_fb_dual_vb, :frame)
         local _fb_manifold    = _VBUNDLES[$(vb_q)].manifold
 
         if haskey(_FRAME_BUNDLES, $(fn_q))
             @warn "Frame bundle $($(fn_q)) is already defined. Redefining."
         end
 
-        _BASES[$(primal_key_q)] = Basis($(basis_q),   $(vb_q),    :moving)
-        _BASES[_fb_dual_key]    = Basis($(cobasis_q), _fb_dual_vb, :moving)
+        _BASES[$(primal_key_q)] = Basis($(basis_q),   $(vb_q),    :frame)
+        _BASES[_fb_dual_key]    = Basis($(cobasis_q), _fb_dual_vb, :frame)
 
         _FRAME_BUNDLES[$(fn_q)]  = FrameBundle($(fn_q),  $(vb_q),    $(cfn_q), _BASES[$(primal_key_q)])
         _FRAME_BUNDLES[$(cfn_q)] = FrameBundle($(cfn_q), _fb_dual_vb, $(fn_q), _BASES[_fb_dual_key])
@@ -395,24 +379,21 @@ macro def_frame_bundle(frame_name, vbundle_name, basis_name, cobasis_name)
         $(esc(cobasis_name))  = _BASES[_fb_dual_key]
 
         println(
-            "Defined frame bundle $($(fn_q)) (moving frame $($(basis_q))) " *
-            "and coframe bundle $($(cfn_q)) (moving coframe $($(cobasis_q))) " *
+            "Defined frame bundle $($(fn_q)) (frame basis $($(basis_q))) " *
+            "and coframe bundle $($(cfn_q)) (frame cobasis $($(cobasis_q))) " *
             "over $(_fb_manifold)"
         )
         nothing
     end
 end
 
-
 # =========================================
-# 11.  @undef_frame_bundle macro
+# 12. @undef_frame_bundle macro
 # =========================================
-
 """
-    @undef_frame_bundle frame_name
-
-Remove the frame bundle `frame_name`, its dual coframe bundle, and both
-`:moving` entries from `_BASES`. Silent if not registered.
+@undef_frame_bundle frame_name
+Remove the frame bundle frame_name, its dual coframe bundle, and both
+:frame entries from _BASES. Silent if not registered.
 """
 macro undef_frame_bundle(frame_name)
     frame_name isa Symbol ||
@@ -424,8 +405,8 @@ macro undef_frame_bundle(frame_name)
         if haskey(_FRAME_BUNDLES, $(fn_q))
             local _ufb_vb      = getfield(_FRAME_BUNDLES[$(fn_q)], :vbundle)
             local _ufb_dvb     = _VBUNDLES[_ufb_vb].dual
-            delete!(_BASES, (_ufb_vb,  :moving))
-            delete!(_BASES, (_ufb_dvb, :moving))
+            delete!(_BASES, (_ufb_vb,  :frame))
+            delete!(_BASES, (_ufb_dvb, :frame))
             delete!(_FRAME_BUNDLES, $(fn_q))
             delete!(_FRAME_BUNDLES, $(cfn_q))
         end
@@ -433,154 +414,126 @@ macro undef_frame_bundle(frame_name)
     end
 end
 
+# =========================================
+# 13. Per-slot Basis resolution
+# =========================================
+function _resolve_basis_category(slot_vb::Symbol, ::CoordinateStyle)
+    haskey(_BASES, (slot_vb, :coordinate)) && return :coordinate
+    haskey(_BASES, (slot_vb, :frame))      && return :frame
+    error("No basis registered for vbundle :$slot_vb.")
+end
+
+function _resolve_basis_category(slot_vb::Symbol, ::FrameStyle)
+    haskey(_BASES, (slot_vb, :frame)) && return :frame
+    error("No frame basis registered for vbundle :$slot_vb.")
+end
 
 # =========================================
-# 12.  basis_expansion — internal core
+# 14. Canonical Indices & Component Generation
 # =========================================
-
-# _canonical_component(T) builds the TensorExpression that appears as the
-# component part of a BasisExpansion: T with canonical slot indices.
-#
-# For each slot i, the index is taken from the manifold's registered
-# coordinate index list (in order) and placed in the slot's vbundle.
-# This means:
-#   covariant slot   (cotangentM) → CoordinateIndex(:a1, :cotangentM)
-#   contravariant slot (tangentM) → CoordinateIndex(:a1, :tangentM)
-#
-# The index symbol is the i-th coordinate index registered to tangentM.
-# We read it directly from _COORDINATE_INDICES (sorted for determinism),
-# not from the VBundle.indices list, to avoid any coupling to the VBundle
-# struct's internal ordering.
-function _canonical_component(T::Tensor)::TensorExpression
+function _canonical_indices(T::Tensor, style::ExpansionStyle)::TensorExpression
     haskey(_MANIFOLDS, T.manifold) ||
         error("basis_expansion: tensor references unregistered manifold :$(T.manifold).")
-    m  = _MANIFOLDS[T.manifold]
-    tb = m.tangent_bundle
-
-    # Collect coordinate index symbols registered to tangentM, sorted for
-    # determinism (Dict iteration order is not guaranteed).
-    coord_syms = sort([s for (s, home) in _COORDINATE_INDICES if home == tb])
-
     n = T.rank
-    n <= length(coord_syms) ||
-        error(
-            "basis_expansion: tensor rank $n exceeds number of registered " *
-            "coordinate indices for manifold :$(T.manifold) " *
-            "($(length(coord_syms)) registered). " *
-            "Add more with @add_indices."
-        )
+    canonical_idxs = AbstractIndex[]
+    # We track how many index symbols have been consumed for each bundle pool.
+    # A bundle and its dual share the same pool of registered indices.
+    usage_counts = Dict{Tuple{Symbol, Symbol}, Int}() 
 
-    # Build one CoordinateIndex per slot, using the slot's own vbundle
-    # so that the TensorExpression matches the canonical slot placement.
-    canonical_idxs = AbstractIndex[
-        CoordinateIndex(coord_syms[i], T.slots[i])
-        for i in 1:n
-    ]
+    for i in 1:n
+        slot_vb = T.slots[i]
+        cat = _resolve_basis_category(slot_vb, style)
+
+        index_registry = cat === :coordinate ? _COORDINATE_INDICES : _BASIS_INDICES
+        index_constructor = cat === :coordinate ? CoordinateIndex : BasisIndex
+
+        dual_vb = _VBUNDLES[slot_vb].dual
+        pool_id = min(slot_vb, dual_vb) # Unique ID for the primal/dual pair
+        
+        syms = sort([s for (s, home) in index_registry if home == slot_vb || home == dual_vb])
+
+        count = get(usage_counts, (pool_id, cat), 0) + 1
+        usage_counts[(pool_id, cat)] = count
+
+        if count > length(syms)
+            error(
+                "basis_expansion: tensor exceeds number of registered $cat indices " *
+                "for bundles :$slot_vb / :$dual_vb. Add more with @add_indices."
+            )
+        end
+
+        push!(canonical_idxs, index_constructor(syms[count], slot_vb))
+    end
 
     TensorExpression(T, canonical_idxs)
 end
 
-# _basis_element_for_slot builds the BasisElement for slot i of tensor T.
-#
-# The basis is looked up in _BASES by (slot_vb, frame_type).
-# The BasisElement's index is the *dual* of the slot's canonical index:
-#   covariant slot  (cotangentM, idx ∈ cotangentM) → BasisElement index ∈ tangentM
-#   contravariant slot (tangentM, idx ∈ tangentM)  → BasisElement index ∈ cotangentM
-#
-# This is the standard pairing: a covariant component T_{a} contracts with
-# the contravariant basis element dx^a (labeled by an upper index).
 function _basis_element_for_slot(
-    slot_vb   :: Symbol,
-    frame_type :: Symbol,
-    idx_sym   :: Symbol,
+    slot_vb  :: Symbol,
+    cat      :: Symbol,
+    idx      :: AbstractIndex,
 )::BasisElement
-    haskey(_BASES, (slot_vb, frame_type)) ||
-        error(
-            "basis_expansion: no $(frame_type) frame registered for " *
-            "vbundle :$slot_vb. " *
-            "Call @def_manifold or @def_frame_bundle for this bundle first."
-        )
-    b       = _BASES[(slot_vb, frame_type)]
+    haskey(_BASES, (slot_vb, cat)) ||
+        error("basis_expansion: no $(cat) basis registered for vbundle :$slot_vb.")
+    b = _BASES[(slot_vb, cat)]
     dual_vb = _VBUNDLES[slot_vb].dual
-    # The BasisElement index lives in the dual bundle.
-    # It is always a CoordinateIndex because basis_expansion works with
-    # the coordinate index symbols (a1, a2, ...) as labels.
-    dual_idx = CoordinateIndex(idx_sym, dual_vb)
+    if idx isa CoordinateIndex
+        dual_idx = CoordinateIndex(idx.symbol, dual_vb)
+    elseif idx isa BasisIndex
+        dual_idx = BasisIndex(idx.symbol, dual_vb)
+    else
+        error("basis_expansion: unsupported index type $(typeof(idx))")
+    end
+
     BasisElement(b, dual_idx)
 end
 
-
 # =========================================
-# 13.  basis_expansion — public API
+# 15. basis_expansion — public API
 # =========================================
-
 """
-    basis_expansion(T::Tensor, b::Basis) -> BasisExpansion
+    basis_expansion(T::Tensor, style::ExpansionStyle=Coordinate) -> BasisExpansion
+    basis_expansion(T::Tensor) -> BasisExpansion
 
-Expand the abstract tensor `T` in the frame described by the [`Basis`](@ref)
-object `b`, using the canonical slot index assignment declared at
-`@def_tensor` time.
+Expand tensor `T` slot-by-slot using canonical indices and the given [`ExpansionStyle`](@ref).
 
-This is the most type-safe entry point: `b` is a concrete registered
-`Basis` struct bound in the user's scope by `@def_manifold` or
-`@def_frame_bundle`.
+- **`Coordinate`** (default): per slot use `:coordinate` basis if registered, else `:frame`.
+- **`Frame`**: per slot use `:frame` basis only.
 
-For each slot `i`:
-- The component index is the `i`-th registered coordinate symbol placed in
-  `T.slots[i]` (i.e. `CoordinateIndex(:a_i, slot_vb)`).
-- The basis element uses `b` and labels it with the *dual* index
-  `CoordinateIndex(:a_i, dual_of_slot_vb)`.
-
-This means `b.vbundle` must match every slot's vbundle in `T.slots`.
-If `T` has mixed slots (e.g. `[tangentM, cotangentM]`), pass the frame
-for each slot separately or use the `frame::Symbol` overload which handles
-per-slot lookup automatically.
+Handles mixed-variance and multi-bundle tensors. There is no `basis_expansion(T, ::Basis)` overload.
 
 # Examples
 ```julia
-@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-@def_metric   g[-a1, -a2] M
-@def_tensor   T[-a1, -a2] M
-
-basis_expansion(T, dx)   # T[-a1,-a2] dx[a1] ⊗ dx[a2]
-basis_expansion(T, θ)    # T[-a1,-a2] θ[a1]  ⊗ θ[a2]
+basis_expansion(T)             # Coordinate style
+basis_expansion(T, Coordinate)
+basis_expansion(T, Frame)
 ```
 """
-function basis_expansion(T::Tensor, b::Basis)::BasisExpansion
-    comp = _canonical_component(T)
-    n    = T.rank
+basis_expansion(T::Tensor) = basis_expansion(T, Coordinate)
+
+function basis_expansion(T::Tensor, style::ExpansionStyle)::BasisExpansion
+    comp = _canonical_indices(T, style)
     basis_elements = BasisElement[]
-    for i in 1:n
-        slot_vb  = T.slots[i]
-        idx_sym  = comp.indices[i].symbol
-        # Validate that b.vbundle matches this slot.
-        b.vbundle == slot_vb ||
-            error(
-                "basis_expansion: Basis :$(b.name) is for vbundle :$(b.vbundle) " *
-                "but slot $i of tensor $(T.print_as) has vbundle :$slot_vb. " *
-                "For mixed-variance tensors use `basis_expansion(T; frame=:coordinate)` " *
-                "or `basis_expansion(T; frame=:moving)` which resolve per-slot bases " *
-                "automatically."
-            )
-        push!(basis_elements, _basis_element_for_slot(slot_vb, b.type, idx_sym))
+    for i in 1:T.rank
+        slot_vb = T.slots[i]
+        cat = _resolve_basis_category(slot_vb, style)
+        idx = comp.indices[i]
+        push!(basis_elements, _basis_element_for_slot(slot_vb, cat, idx))
     end
     BasisExpansion(comp, basis_elements)
 end
 
 # =========================================
-# 14.  show — Basis
+# 16. show — Basis
 # =========================================
-
 function Base.show(io::IO, b::Basis)
-    type_label = b.type === :coordinate ? "coord" : "moving"
-    print(io, "Basis($(b.name), $(b.vbundle), $(type_label))")
+    cat_label = b.category === :coordinate ? "coord" : "frame"
+    print(io, "Basis($(b.name), $(b.vbundle), $(cat_label))")
 end
 
-
 # =========================================
-# 15.  show — FrameBundle
+# 17. show — FrameBundle
 # =========================================
-
 function Base.show(io::IO, fb::FrameBundle)
     print(io, "FrameBundle($(fb.name), vbundle=$(fb.vbundle), dual=$(fb.dual), basis=$(fb.basis.name))")
 end
@@ -592,17 +545,15 @@ function Base.show(io::IO, ::MIME"text/html", fb::FrameBundle)
         <table style="width:100%;border-collapse:collapse;">
             <tr><td style="font-weight:bold;width:150px;text-align:left;">VBundle</td><td><code>$(fb.vbundle)</code></td></tr>
             <tr><td style="font-weight:bold;text-align:left;">Dual</td><td><code>$(fb.dual)</code></td></tr>
-            <tr><td style="font-weight:bold;text-align:left;">Moving basis</td><td><code>$(fb.basis.name)</code></td></tr>
+            <tr><td style="font-weight:bold;text-align:left;">Frame basis</td><td><code>$(fb.basis.name)</code></td></tr>
         </table>
     </div>
     """)
 end
 
-
 # =========================================
-# 16.  show — BasisElement
+# 18. show — BasisElement
 # =========================================
-
 function Base.show(io::IO, be::BasisElement)
     idx    = be.index
     prefix = (haskey(_VBUNDLES, idx.vbundle) && is_down(idx)) ? "-" : ""
@@ -610,7 +561,6 @@ function Base.show(io::IO, be::BasisElement)
 end
 
 # ── LaTeX helpers ────────────────────────────────────────────────────────────
-
 function _basis_latex_name(sym::Symbol)::String
     if sym === :dx
         return "\\mathrm{d}x"
@@ -646,7 +596,6 @@ function Base.show(io::IO, ::MIME"text/latex", be::BasisElement)
 end
 
 # ── HTML helpers ─────────────────────────────────────────────────────────────
-
 function _format_basis_element_html(be::BasisElement)::String
     name_str = string(be.basis.name)
     idx_str  = string(be.index.symbol)
@@ -661,20 +610,16 @@ function Base.show(io::IO, ::MIME"text/html", be::BasisElement)
     print(io, _format_basis_element_html(be))
 end
 
-
 # =========================================
-# 17.  show — BasisExpansion
+# 19. show — BasisExpansion
 # =========================================
-
 """
-    Base.show(io::IO, bx::BasisExpansion)
-
+Base.show(io::IO, bx::BasisExpansion)
 REPL display: component followed by basis elements joined with ⊗.
 No ⊗ between the component and the first basis element.
-
-    T[-a1,-a2] dx[a1] ⊗ dx[a2]
-    T[-a1,-a2] θ[a1]  ⊗ θ[a2]
-    S[a1,-a2]  ∂[-a1] ⊗ dx[a2]
+T[-a1,-a2] dx[a1] ⊗ dx[a2]
+T[-A1,-A2] θ[A1]  ⊗ θ[A2]
+S[a1,-a2]  ∂[-a1] ⊗ dx[a2]
 """
 function Base.show(io::IO, bx::BasisExpansion)
     print(io, bx.component)
@@ -685,15 +630,13 @@ function Base.show(io::IO, bx::BasisExpansion)
 end
 
 """
-    Base.show(io::IO, ::MIME"text/latex", bx::BasisExpansion)
-
+Base.show(io::IO, ::MIME"text/latex", bx::BasisExpansion)
 LaTeX display:
-
-    T_{a_{1} a_{2}}\\,\\mathrm{d}x^{a_{1}} \\otimes \\mathrm{d}x^{a_{2}}
+T_{a_{1} a_{2}}\\, \\mathrm{d}x^{a_{1}} \\otimes \\mathrm{d}x^{a_{2}}
 """
 function Base.show(io::IO, ::MIME"text/latex", bx::BasisExpansion)
     comp_str  = sprint(show, MIME"text/latex"(), bx.component)
-    comp_core = strip(comp_str, ['$'])
+    comp_core = strip(comp_str, ['\$'])
     basis_strs = [_format_basis_element_latex(be) for be in bx.basis_elements]
     result = comp_core
     if !isempty(basis_strs)
@@ -703,10 +646,9 @@ function Base.show(io::IO, ::MIME"text/latex", bx::BasisExpansion)
 end
 
 """
-    Base.show(io::IO, ::MIME"text/html", bx::BasisExpansion)
-
-HTML display using `<sup>` / `<sub>` tags.
-The component uses `_format_html` from `tensorExpressions.jl`.
+Base.show(io::IO, ::MIME"text/html", bx::BasisExpansion)
+HTML display using  /  tags.
+The component uses _format_html from tensorExpressions.jl.
 """
 function Base.show(io::IO, ::MIME"text/html", bx::BasisExpansion)
     comp_html = _format_html(bx.component)
@@ -716,17 +658,16 @@ function Base.show(io::IO, ::MIME"text/html", bx::BasisExpansion)
     end
     basis_html = join(
         [_format_basis_element_html(be) for be in bx.basis_elements],
-        " &#x2297; "
+        " ⊗ "
     )
     print(io, comp_html, " ", basis_html)
 end
 
-
 # =========================================
 # Exports
 # =========================================
-
 export Basis, BasisElement, BasisExpansion, FrameBundle
+export ExpansionStyle, CoordinateStyle, FrameStyle, Coordinate, Frame
 export _BASES, _FRAME_BUNDLES
 export basis_for_vbundle, bases_for_vbundle
 export @def_frame_bundle, @undef_frame_bundle
