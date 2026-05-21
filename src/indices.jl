@@ -347,11 +347,11 @@ Register extra **coordinate** index symbols to the tangent bundle of manifold
 `M` and bind each to a contravariant [`CoordinateIndex`](@ref) in scope.
 
 # Example
-```julia
+~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @add_indices M a5 a6
 a5   # CoordinateIndex(:a5, :tangentM)
-```
+~~~
 """
 macro add_indices(manifold_name, idx_syms...)
     isempty(idx_syms) &&
@@ -425,11 +425,12 @@ Used internally when validating lists of coordinate symbols (e.g. after
 
 # Examples
 
-After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`,
-`validate_indices([:a1, :a2], :tangentM)` succeeds.
-
-`validate_indices([:a1, :NOT_REG], :tangentM)` errors if `:NOT_REG` is unknown.
-`validate_indices([:a1], :wrongBundle)` errors if `:a1` is not on `:wrongBundle`.
+~~~julia
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
+validate_indices([:a1, :a2], :tangentM)   # ok
+validate_indices([:a1, :NOT_REG], :tangentM)   # throws — unknown symbol
+validate_indices([:a1], :wrongBundle)         # throws — wrong home bundle
+~~~
 """
 function validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
     for s in syms
@@ -464,11 +465,12 @@ Throws `ErrorException` if any check fails; returns `nothing` otherwise.
 For a non-throwing predicate, see [`contractable`](@ref).
 
 # Examples
-
-After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`, with `a1` contravariant
-and `-a1` covariant, `validate_contraction(a1, -a1)` succeeds.
-
-Pairing `a1` with `a2` (different symbols) or `a1` with `a1` (same vbundle) errors.
+~~~julia
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
+validate_contraction(a1, -a1)   # ok — dual partners, same symbol
+validate_contraction(a1, a2)    # throws — different symbols
+validate_contraction(a1, a1)    # throws — same vbundle (not dual)
+~~~
 """
 function validate_contraction(a::AbstractIndex, b::AbstractIndex)
     typeof(a) === typeof(b) ||

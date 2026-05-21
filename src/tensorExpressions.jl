@@ -122,7 +122,7 @@ Accepted argument types per slot:
   `g[a1, a2]`, `T[a1, -a2]`, `T[-a1, -a2]` are all valid expressions.
 
 # Examples
-```julia
+~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @def_metric g M
 @def_tensor F[-a1, -a2] M symmetries=[antisymmetric(2)]
@@ -133,7 +133,7 @@ g[a1, -a2]               # mixed — valid
 F[-a1, -a2]              # covariant F (canonical form)
 F[a1, a2]                # contravariant F — valid
 F[-a1, -a2, -a1]         # error: rank mismatch
-```
+~~~
 """
 function Base.getindex(T::Tensor, idxs...)
     n = length(idxs)

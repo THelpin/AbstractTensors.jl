@@ -61,12 +61,12 @@ At **expression** time you still write `g[-a1, -a2]` using coordinate indices;
 only **definition** uses `@def_metric g M`.
 
 # Examples
-```julia
+~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 
 @def_metric g M    # Riemannian metric on M
 @def_metric η M    # second metric on the same manifold
-```
+~~~
 """
 macro def_metric(name, manifold_expr)
     name isa Symbol ||

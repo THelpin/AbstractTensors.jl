@@ -197,7 +197,7 @@ registers it in [`_TENSORS`](@ref).
 
 ### Examples
 
-```julia
+~~~julia
 @def_manifold M 4 [a1, a2, a3, a4]
 @def_metric g M
 
@@ -206,7 +206,7 @@ registers it in [`_TENSORS`](@ref).
 @def_tensor R [cotangentM, cotangentM, cotangentM, tangentM] symmetries=[riemann_symmetry()]
 @def_tensor W [cotangentM, cotangentM, cotangentM, tangentM] symmetries=[riemann_symmetry()] traceless=true print_as=:Weyl
 @def_tensor mixed_T [tangentM, cotangentM]            # (1,1) mixed tensor
-```
+~~~
 """
 macro def_tensor(tensor_name, vbundle_list, kwargs...)
     tensor_name isa Symbol ||

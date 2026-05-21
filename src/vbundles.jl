@@ -81,7 +81,7 @@ Registers both bundles in `_VBUNDLES` and appends their names to
 `manifold.vbundles`.
 
 ### Examples
-```julia
+~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [B1, B2, B3, B4]
 @def_vbundle E M 3 [A1, A2, A3]    # rank-3 bundle and its dual over M
 @def_vbundle E M r [A1, A2, A3]    # parametric fibre dimension
@@ -91,7 +91,7 @@ dualE.isdual   # true
 A1.vbundle     # :E
 -A1            # BasisIndex(:A1, :dualE)
 M.vbundles     # [:tangentM, :cotangentM, :E, :dualE]
-```
+~~~
 """
 macro def_vbundle(name, manifold_name, dim, indices, kwargs...)
     name isa Symbol ||
@@ -221,13 +221,13 @@ stale-reference warning defined in `Base.getproperty(::VBundle, ...)`.
 To fully clear the names from your session, restart the Julia kernel.
 
 ### Examples
-```julia
+~~~julia
 @def_manifold M 4 [a1, a2, a3, a4]
 @def_vbundle E M 3 [v1, v2, v3]
 @undef_vbundle E M
 
 E.isdual    # → Warning: VBundle :E has been undefined. Variable still holds a stale reference.
-```
+~~~
 """
 macro undef_vbundle(name, manifold_name)
     name isa Symbol ||

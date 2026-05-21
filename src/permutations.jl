@@ -438,12 +438,12 @@ Any element type `T` with `isless` defined is supported.  For
 [`AbstractIndex`](@ref), `isless` is defined in this file.
 
 # Example
-```julia
+~~~julia
 sym  = antisymmetric(2)
 a, b = CoordinateIndex(:a, :TangentM), CoordinateIndex(:b, :TangentM)
 canonical_rep([b, a], sym)   # ([a, b], Int8(-1))
 # i.e. T[b, a] = -T[a, b]
-```
+~~~
 """
 function canonical_rep(indices::Vector{T}, sym::SlotSymmetry) where {T}
     length(indices) == sym.n ||

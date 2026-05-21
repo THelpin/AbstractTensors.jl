@@ -270,12 +270,12 @@ Validates:
    frame bases use [`BasisIndex`](@ref)
 
 # Examples
-```julia
+~~~julia
 dx[a1]      # a1 ∈ tangentM  — coordinate index on cotangent coordinate basis
 ∂[-a1]      # -a1 ∈ cotangentM — coordinate index on tangent coordinate basis
 e[-A1]      # -A1 ∈ cotangentM — basis index on tangent frame basis
 θ[A1]       # A1 ∈ tangentM  — basis index on cotangent frame basis
-```
+~~~
 """
 function Base.getindex(b::Basis, idx::AbstractIndex)
     haskey(_VBUNDLES, b.vbundle) ||
@@ -324,11 +324,11 @@ Dual frame bundle name: `Symbol("co", frame_name)` (e.g. `frameE` → `coframeE`
 Registers `_BASES[(vbundle, :frame)]` and `_FRAME_BUNDLES`.
 
 # Example
-```julia
+~~~julia
 @def_vbundle E M 3 [A1, A2, A3]
 @def_frame_bundle frameE E eE θE
 eE[-A1]   # BasisElement of E frame, labeled by dualE index
-```
+~~~
 """
 macro def_frame_bundle(frame_name, vbundle_name, basis_name, cobasis_name)
     frame_name isa Symbol ||
@@ -503,11 +503,11 @@ Expand tensor `T` slot-by-slot using canonical indices and the given [`Expansion
 Handles mixed-variance and multi-bundle tensors. There is no `basis_expansion(T, ::Basis)` overload.
 
 # Examples
-```julia
+~~~julia
 basis_expansion(T)             # Coordinate style
 basis_expansion(T, Coordinate)
 basis_expansion(T, Frame)
-```
+~~~
 """
 basis_expansion(T::Tensor) = basis_expansion(T, Coordinate)
 

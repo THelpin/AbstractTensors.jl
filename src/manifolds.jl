@@ -364,10 +364,10 @@ Basis indices (second list) → [`BasisIndex`](@ref):
     -A1         # BasisIndex(:A1, :cotangentM) — covariant
 
 #### Examples
-```julia
+~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @def_manifold M d [b1, b2, b3, b4] [B1, B2, B3, B4]   # parametric dimension
-```
+~~~
 """
 macro def_manifold(name, dim, coord_indices, basis_indices, kwargs...)
     name isa Symbol ||
@@ -525,12 +525,12 @@ Julia module-level bindings cannot be deleted at runtime. The variable
 `Manifold` struct after this call. Attempting to access any field on
 that stale reference will raise an immediate warning:
 
-```julia
+~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @undef_manifold M
 
 M.dim   # → Warning: Manifold :M has been undefined. Variable still holds a stale reference.
-```
+~~~
 
 To fully clear the name from your session, restart the Julia kernel.
 """
