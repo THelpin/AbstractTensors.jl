@@ -1,5 +1,5 @@
 # =========================================
-# permutations.jl — AbstractTensors.jl
+# permutations.jl — SymbolicTensors.jl
 #
 # — SignedPerm
 #   A permutation of 1:n paired with a sign ±1.

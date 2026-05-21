@@ -1,5 +1,5 @@
 # =========================================
-# tensorExpressions.jl — AbstractTensors.jl
+# tensorExpressions.jl — SymbolicTensors.jl
 #
 # A TensorExpression is a Tensor (schema) applied to a specific list of
 # AbstractIndex objects. It is the REPL/notebook object you interact with:

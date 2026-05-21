@@ -1,5 +1,5 @@
 # =========================================
-# indices.jl — AbstractTensors.jl
+# indices.jl — SymbolicTensors.jl
 #
 # Two concrete index types share the AbstractIndex supertype:
 #

@@ -1,4 +1,4 @@
-module AbstractTensors
+module SymbolicTensors
 
 # Load order is strict:
 #   indices.jl          — AbstractIndex, CoordinateIndex, BasisIndex, flip, is_up/is_down
@@ -29,7 +29,7 @@ include("show.jl")
 Print a summary of all module-level registries (for REPL debugging).
 """
 function show_registry()
-    println("=== AbstractTensors registries ===")
+    println("=== SymbolicTensors registries ===")
     println("_MANIFOLDS:           ", sort(collect(keys(_MANIFOLDS))))
     println("_VBUNDLES:            ", sort(collect(keys(_VBUNDLES))))
     println("_COORDINATE_INDICES:  ", sort(collect(keys(_COORDINATE_INDICES))))

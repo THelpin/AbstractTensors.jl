@@ -1,5 +1,5 @@
 # =========================================
-# metrics.jl — AbstractTensors.jl
+# metrics.jl — SymbolicTensors.jl
 #
 # A metric is a Tensor that is also registered in _METRICS.
 # @def_metric enforces:

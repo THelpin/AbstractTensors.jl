@@ -1,5 +1,5 @@
 # =========================================
-# frames.jl — AbstractTensors.jl
+# frames.jl — SymbolicTensors.jl
 #
 # Frame bundles: coordinate frames (∂/dx) and moving frames (e/θ).
 #
@@ -566,77 +566,6 @@ function basis_expansion(T::Tensor, b::Basis)::BasisExpansion
     end
     BasisExpansion(comp, basis_elements)
 end
-
-"""
-    basis_expansion(T::Tensor, fb::FrameBundle) -> BasisExpansion
-
-Expand `T` using the moving frame of [`FrameBundle`](@ref) `fb`.
-
-Delegates to `basis_expansion(T, fb.basis)`. The `FrameBundle` is the
-object bound in the caller's scope by `@def_manifold` as `frameM` /
-`coframeM`, or by `@def_frame_bundle`.
-
-# Examples
-```julia
-@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-@def_tensor   T[-a1, -a2] M
-
-basis_expansion(T, frameM)    # same as basis_expansion(T, e), but less coupled to names
-basis_expansion(T, coframeM)  # same as basis_expansion(T, θ)
-```
-"""
-function basis_expansion(T::Tensor, fb::FrameBundle)::BasisExpansion
-    basis_expansion(T, fb.basis)
-end
-
-"""
-    basis_expansion(T::Tensor; frame::Symbol = :coordinate) -> BasisExpansion
-
-Expand the abstract tensor `T` in the coordinate frame (default) or moving
-frame, resolving the [`Basis`](@ref) **per slot** from `_BASES`.
-
-This is the most flexible overload: it handles mixed-variance tensors
-(e.g. `T[a1, -a2]`) by looking up the correct frame for each slot
-individually. The frame symbol must be `:coordinate` or `:moving`.
-
-For each slot `i` with slot vbundle `slot_vb`:
-- Looks up `_BASES[(slot_vb, frame)]` → the appropriate `Basis` for that slot.
-- Constructs a `BasisElement` labeled by the dual of the slot's canonical index.
-
-The component part uses the canonical slot indices (the first `rank(T)`
-registered coordinate symbols, each in its slot's vbundle).
-
-# Examples
-```julia
-@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-@def_tensor   T[-a1, -a2] M
-@def_tensor   S[a1,  -a2] M   # mixed (1,1) tensor
-
-basis_expansion(T)                   # T[-a1,-a2] dx[a1] ⊗ dx[a2]
-basis_expansion(T; frame=:moving)    # T[-a1,-a2] θ[a1]  ⊗ θ[a2]
-basis_expansion(S)                   # S[a1,-a2]  ∂[-a1] ⊗ dx[a2]
-basis_expansion(S; frame=:moving)    # S[a1,-a2]  e[-a1] ⊗ θ[a2]
-```
-
-Errors if:
-- `frame` is not `:coordinate` or `:moving`
-- No frame of the requested type has been registered for any slot's bundle
-"""
-function basis_expansion(T::Tensor; frame::Symbol=:coordinate)::BasisExpansion
-    frame in _VALID_FRAME_TYPES ||
-        error(
-            "basis_expansion: invalid frame type :$frame. " *
-            "Must be one of $(join(map(s->":$s", _VALID_FRAME_TYPES), " or "))."
-        )
-    comp = _canonical_component(T)
-    n    = T.rank
-    basis_elements = BasisElement[
-        _basis_element_for_slot(T.slots[i], frame, comp.indices[i].symbol)
-        for i in 1:n
-    ]
-    BasisExpansion(comp, basis_elements)
-end
-
 
 # =========================================
 # 14.  show — Basis

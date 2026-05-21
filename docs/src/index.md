@@ -1,12 +1,12 @@
 ```@meta
-CurrentModule = AbstractTensors
+CurrentModule = SymbolicTensors
 ```
 
-# AbstractTensors.jl
+# SymbolicTensors.jl
 
-Documentation for [AbstractTensors.jl](https://github.com/THelpin/AbstractTensors.jl).
+Documentation for [SymbolicTensors.jl](https://github.com/THelpin/SymbolicTensors.jl).
 
-AbstractTensors.jl is a Julia package for symbolic tensor algebra on
+SymbolicTensors.jl is a Julia package for symbolic tensor algebra on
 differentiable manifolds. It provides the infrastructure needed to define
 tensors with their slot structure and symmetry groups, perform Einstein
 summation, raise/lower indices, and work with general (possibly
@@ -69,7 +69,7 @@ construction time via BFS — exact and fast for all physical tensor ranks.
 ## Workflow
 
 ```julia
-using AbstractTensors
+using SymbolicTensors
 
 # 1. Define a 4-dimensional manifold with coordinate and basis index symbols
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]

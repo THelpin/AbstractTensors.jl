@@ -1,5 +1,5 @@
 # =========================================
-# tensors.jl — AbstractTensors.jl
+# tensors.jl — SymbolicTensors.jl
 #
 # Design principles:
 #   - A Tensor is a plain struct instance. @def_tensor binds the tensor

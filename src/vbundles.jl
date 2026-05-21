@@ -1,5 +1,5 @@
 # =========================================
-# vbundles.jl — AbstractTensors.jl
+# vbundles.jl — SymbolicTensors.jl
 #
 # Design principles:
 #   - Additional vector bundles beyond the canonical tangent/cotangent pair.

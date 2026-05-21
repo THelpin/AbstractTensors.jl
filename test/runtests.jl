@@ -1,5 +1,5 @@
-using AbstractTensors
-using AbstractTensors: contractable, register_coordinate_index!, register_basis_index!,
+using SymbolicTensors
+using SymbolicTensors: contractable, register_coordinate_index!, register_basis_index!,
     unregister_index!, index_home_vbundle, validate_indices, validate_contraction,
     is_dual_vbundles, show_registry
 using Test
@@ -20,7 +20,7 @@ function _clear_all_registries!()
 end
 
 
-@testset "AbstractTensors.jl" begin
+@testset "SymbolicTensors.jl" begin
 
     # ─────────────────────────────────────────────────────────────────
     @testset "CoordinateIndex — construction and predicates" begin
@@ -592,7 +592,7 @@ end
         @def_metric wm_gA WM_A
 
         @test_throws ErrorException @eval begin
-            using AbstractTensors
+            using SymbolicTensors
             @def_tensor WM_T [cotangentWM_B, cotangentWM_B] metric=wm_gA
         end
     end
@@ -604,7 +604,7 @@ end
         @def_manifold UR_M 4 [ur_a, ur_b, ur_c, ur_d] [URM_B1, URM_B2, URM_B3, URM_B4]
 
         @test_throws ErrorException @eval begin
-            using AbstractTensors
+            using SymbolicTensors
             @def_tensor UR_T [cotangentUR_M, cotangentUR_M] metric=:not_a_metric
         end
     end
@@ -1259,4 +1259,4 @@ end
         @test_throws ErrorException basis_expansion(te; frame=:unknown_frame)
     end
 
-end # @testset "AbstractTensors.jl"
+end # @testset "SymbolicTensors.jl"

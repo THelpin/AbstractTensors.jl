@@ -1,20 +1,20 @@
 
-using AbstractTensors
+using SymbolicTensors
 using Documenter
  
 DocMeta.setdocmeta!(
-    AbstractTensors,
+    SymbolicTensors,
     :DocTestSetup,
-    :(using AbstractTensors);
+    :(using SymbolicTensors);
     recursive = true,
 )
  
 makedocs(;
-    modules  = [AbstractTensors],
+    modules  = [SymbolicTensors],
     authors  = "THelpin <thomas1.helpin@gmail.com> and contributors",
-    sitename = "AbstractTensors.jl",
+    sitename = "SymbolicTensors.jl",
     format   = Documenter.HTML(;
-        canonical  = "https://THelpin.github.io/AbstractTensors.jl",
+        canonical  = "https://THelpin.github.io/SymbolicTensors.jl",
         edit_link  = "main",
         assets     = String[],
         # Show the full method signature in the sidebar
@@ -29,7 +29,7 @@ makedocs(;
 )
  
 deploydocs(;
-    repo       = "github.com/THelpin/AbstractTensors.jl",
+    repo       = "github.com/THelpin/SymbolicTensors.jl",
     devbranch  = "main",
 )
  

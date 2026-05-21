@@ -1,5 +1,5 @@
 # =========================================
-# manifolds.jl — AbstractTensors.jl
+# manifolds.jl — SymbolicTensors.jl
 #
 # Design principles:
 #   - Manifolds and vector bundles are plain struct instances.
@@ -23,7 +23,7 @@
 # =========================================
 
 # Depends on indices.jl being loaded first.
-# In AbstractTensors.jl: include("indices.jl") before include("manifolds.jl")
+# In SymbolicTensors.jl: include("indices.jl") before include("manifolds.jl")
 
 # =========================================
 # 1. Core structs
@@ -127,7 +127,7 @@ const _VBUNDLES = Dict{Symbol, VBundle}()
     is_dual_vbundles(vb1::Symbol, vb2::Symbol) -> Bool
 
 !!! warning "Internal"
-    This function is intended for internal use by the AbstractTensors.jl
+    This function is intended for internal use by the SymbolicTensors.jl
     package. It is not part of the public API and may change without notice.
 
 True if `vb2` is the dual partner of `vb1`, i.e. `_VBUNDLES[vb1].dual == vb2`.

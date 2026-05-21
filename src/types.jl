@@ -1,5 +1,5 @@
 # =========================================
-# types.jl — AbstractTensors.jl
+# types.jl — SymbolicTensors.jl
 #
 # Primitive type aliases shared across all submodules.
 # Loaded first — no dependencies.
