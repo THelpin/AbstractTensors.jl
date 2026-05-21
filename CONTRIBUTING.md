@@ -1,8 +1,8 @@
 # Contributing to SymbolicTensors.jl
 
 SymbolicTensors.jl is a symbolic tensor calculus package for theoretical physics
-and differential geometry, inspired by the Mathematica [xAct bundle](https://xact.es/index.html) and in particular xTensor. It provides the core infrastructure for abstract index
-notation, manifolds, vector bundles, tensor definitions, connection definition, metric definition. It is the foundation layer of a planned suite of packages that will include irreducible tensor decompositions via the Brauer algebra and physics-facing tools for variational calculus, perturbations theory and concrete tensor components computations in basis.
+and differential geometry, inspired by the Mathematica package [xAct bundle](https://xact.es/index.html) and in particular [xTensor] (https://xact.es/xTensor/index.html). It provides the core infrastructure for abstract index
+notation, manifolds, vector bundles, tensor definitions, connection definition, metric definition. It is the foundation layer of a planned suite of packages that will include irreducible tensor decompositions via the Brauer algebra and physics-facing tools for variational calculus, perturbations theory and explicit tensor component calculations.
 
 If you are considering a contribution, please read this document first.
 
