@@ -325,12 +325,16 @@ Base.hash(t::FrameIndex, h::UInt)      = hash((FrameIndex, t.symbol, t.vbundle),
 # 8.  Display
 # =========================================
 
-function Base.show(io::IO, t::AbstractIndex)
-    prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : "+"
-    kind   = t isa CoordinateIndex ? "coord" : "frame"
-    print(io, "$(prefix)$(t.symbol) ∈ $(t.vbundle) ($(kind))")
-end
+# function Base.show(io::IO, t::AbstractIndex)
+#     prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : "+"
+#     kind   = t isa CoordinateIndex ? "coord" : "frame"
+#     print(io, "$(prefix)$(t.symbol) ∈ $(t.vbundle) ($(kind))")
+# end
 
+function Base.show(io::IO, t::AbstractIndex)
+    prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : ""
+    print(io, "$(prefix)$(t.symbol)")
+end
 
 # =========================================
 # 9.  @add_indices macro  (coordinate indices only)

@@ -9,7 +9,7 @@ module SymbolicTensors
 #   tensors.jl          — Tensor, @def_tensor (needs all of the above)
 #   metrics.jl          — @def_metric
 #   tensorExpressions.jl — TensorExpression, show methods
-#   frames.jl           — Basis (category :coordinate|:frame), BasisElement,
+#   frames.jl           — Basis (type :coordinate|:frame), BasisElement,
 #                         BasisExpansion, ExpansionStyle (Coordinate|Frame),
 #                         basis_expansion(T[, style]) — canonical indices only
 
@@ -34,7 +34,7 @@ function show_registry()
     println("_MANIFOLDS:           ", sort(collect(keys(_MANIFOLDS))))
     println("_VBUNDLES:            ", sort(collect(keys(_VBUNDLES))))
     println("_COORDINATE_INDICES:  ", sort(collect(keys(_COORDINATE_INDICES))))
-    println("_BASIS_INDICES:       ", sort(collect(keys(_BASIS_INDICES))))
+    println("_FRAME_INDICES:       ", sort(collect(keys(_FRAME_INDICES))))
     println("_TENSORS:              ", sort(collect(keys(_TENSORS))))
     println("_METRICS:             ", sort(collect(keys(_METRICS))))
     println("_BASES keys:          ", sort(collect(keys(_BASES))))

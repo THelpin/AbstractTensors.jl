@@ -77,8 +77,8 @@ Provides dot access to all metadata:
     tangentM.dual             # :cotangentM
     tangentM.coordinate_indices  # [CoordinateIndex(:a1, :tangentM), ...]
     tangentM.frame_indices       # [FrameIndex(:A1, :tangentM), ...]
-    tangentM.bases            # [Basis(:∂, :tangentM, :coordinate),
-                              #  Basis(:e, :tangentM, :frame)]
+    tangentM.bases            # [Basis(:cf_M, :tangentM, :coordinate, "∂"),
+                              #  Basis(:mf_M, :tangentM, :frame, "e")]
 
 ### Fields
 
@@ -94,6 +94,7 @@ Provides dot access to all metadata:
 - `frame_indices`      : [`FrameIndex`](@ref) objects for the fibre frame;
                          populated by [`@def_manifold`](@ref) and
                          [`@def_vbundle`](@ref)
+- `bases`              : [`Basis`](@ref) objects for the coordinate and frame bases
 """
 struct VBundle
     name::Symbol
@@ -195,123 +196,179 @@ end
 # 6. @def_manifold macro
 # =========================================
 
+function _macro_symbol_vector(expr, context::String)::Vector{Symbol}
+    Meta.isexpr(expr, :vect) ||
+        error("$context: expected a vector literal like [cf_M, ccf_M, mf_M, mcf_M], got $expr")
+    out = Symbol[]
+    for a in expr.args
+        if a isa Symbol
+            push!(out, a)
+        elseif a isa QuoteNode && a.value isa Symbol
+            push!(out, a.value)
+        else
+            error("$context: each entry must be a plain symbol, got $a")
+        end
+    end
+    return out
+end
+
+function _parse_print_as_entry(a, context::String)::String
+    if a isa String
+        return a
+    elseif a isa Symbol
+        return String(a)
+    elseif a isa QuoteNode
+        v = a.value
+        v isa String && return v
+        v isa Symbol && return String(v)
+    elseif Meta.isexpr(a, :string) && length(a.args) == 1 && a.args[1] isa String
+        return a.args[1]
+    end
+    error("$context: each print_as entry must be a string or symbol, got $a")
+end
+
+function _macro_print_as_vector(expr, context::String)::Vector{String}
+    Meta.isexpr(expr, :vect) ||
+        error(
+            "$context: print_as must be a vector literal like " *
+            "[\"∂\", \"dx\", \"e\", \"θ\"], got $expr"
+        )
+    return [_parse_print_as_entry(a, context) for a in expr.args]
+end
+
 # ── helper: register coordinate frame in _BASES and bind variables ──────────
 function _gen_coord_frame_registration_expr(
-    primal_q    :: QuoteNode,
-    dual_q      :: QuoteNode,
-    basis_sym   :: Symbol,
-    cobasis_sym :: Symbol,
+    primal_q      :: QuoteNode,
+    dual_q        :: QuoteNode,
+    bind_cf       :: Symbol,
+    bind_ccf      :: Symbol,
+    print_cf      :: String,
+    print_ccf     :: String,
+    manifold_q    :: QuoteNode,
 )
-    bq         = QuoteNode(basis_sym)
-    cq         = QuoteNode(cobasis_sym)
-    primal_key = QuoteNode((primal_q.value, :coordinate))
-    dual_key   = QuoteNode((dual_q.value,   :coordinate))
+    bind_cf_q    = QuoteNode(bind_cf)
+    bind_ccf_q   = QuoteNode(bind_ccf)
+    print_cf_q   = QuoteNode(print_cf)
+    print_ccf_q  = QuoteNode(print_ccf)
+    primal_key   = QuoteNode((primal_q.value, :coordinate))
+    dual_key     = QuoteNode((dual_q.value,   :coordinate))
+    coord_msg    = QuoteNode(
+        "Defined coordinate frame $(print_cf) (binding :$(bind_cf)) on $(primal_q.value) " *
+        "and coordinate coframe $(print_ccf) (binding :$(bind_ccf)) on $(dual_q.value)"
+    )
     quote
-        _BASES[$(primal_key)] = Basis($(bq), $(primal_q), :coordinate)
-        _BASES[$(dual_key)]   = Basis($(cq), $(dual_q),   :coordinate)
-        $(esc(basis_sym))     = _BASES[$(primal_key)]
-        $(esc(cobasis_sym))   = _BASES[$(dual_key)]
-        println(
-            "Defined coordinate frame $($(bq)) on $($(primal_q)) " *
-            "and coordinate coframe $($(cq)) on $($(dual_q))"
-        )
+        _warn_and_register_basis_binding!($(bind_cf_q),  $(primal_q), :coordinate, $(manifold_q))
+        _warn_and_register_basis_binding!($(bind_ccf_q), $(dual_q),   :coordinate, $(manifold_q))
+
+        _BASES[$(primal_key)] = Basis($(bind_cf_q),  $(primal_q), :coordinate, $(print_cf_q))
+        _BASES[$(dual_key)]   = Basis($(bind_ccf_q), $(dual_q),   :coordinate, $(print_ccf_q))
+        $(esc(bind_cf))       = _BASES[$(primal_key)]
+        $(esc(bind_ccf))      = _BASES[$(dual_key)]
+        println($(coord_msg))
         nothing
     end
 end
 
 # ── helper: register moving frame in _BASES, create FrameBundles, bind vars ─
 function _gen_moving_frame_registration_expr(
-    frame_name   :: Symbol,
-    coframe_name :: Symbol,
-    primal_q     :: QuoteNode,
-    dual_q       :: QuoteNode,
-    basis_sym    :: Symbol,
-    cobasis_sym  :: Symbol,
-    manifold_q   :: QuoteNode,
+    frame_name    :: Symbol,
+    coframe_name  :: Symbol,
+    primal_q      :: QuoteNode,
+    dual_q        :: QuoteNode,
+    bind_mf       :: Symbol,
+    bind_mcf      :: Symbol,
+    print_mf      :: String,
+    print_mcf     :: String,
+    manifold_q    :: QuoteNode,
 )
-    bq         = QuoteNode(basis_sym)
-    cq         = QuoteNode(cobasis_sym)
-    fn_q       = QuoteNode(frame_name)
-    cfn_q      = QuoteNode(coframe_name)
-    primal_key = QuoteNode((primal_q.value, :frame))
-    dual_key   = QuoteNode((dual_q.value,   :frame))
+    bind_mf_q   = QuoteNode(bind_mf)
+    bind_mcf_q  = QuoteNode(bind_mcf)
+    print_mf_q  = QuoteNode(print_mf)
+    print_mcf_q = QuoteNode(print_mcf)
+    fn_q        = QuoteNode(frame_name)
+    cfn_q       = QuoteNode(coframe_name)
+    primal_key  = QuoteNode((primal_q.value, :frame))
+    dual_key    = QuoteNode((dual_q.value,   :frame))
+    frame_msg   = QuoteNode(
+        "Defined frame bundle $(fn_q.value) (moving frame $(print_mf), binding :$(bind_mf)) " *
+        "and coframe bundle $(cfn_q.value) (moving coframe $(print_mcf), binding :$(bind_mcf)) " *
+        "over $(manifold_q.value)"
+    )
     quote
-        _BASES[$(primal_key)] = Basis($(bq), $(primal_q), :frame)
-        _BASES[$(dual_key)]   = Basis($(cq), $(dual_q),   :frame)
+        _warn_and_register_basis_binding!($(bind_mf_q),  $(primal_q), :frame, $(manifold_q))
+        _warn_and_register_basis_binding!($(bind_mcf_q), $(dual_q),   :frame, $(manifold_q))
+
+        _BASES[$(primal_key)] = Basis($(bind_mf_q),  $(primal_q), :frame, $(print_mf_q))
+        _BASES[$(dual_key)]   = Basis($(bind_mcf_q), $(dual_q),   :frame, $(print_mcf_q))
 
         _FRAME_BUNDLES[$(fn_q)]  = FrameBundle($(fn_q),  $(primal_q), $(cfn_q), _BASES[$(primal_key)])
         _FRAME_BUNDLES[$(cfn_q)] = FrameBundle($(cfn_q), $(dual_q),   $(fn_q),  _BASES[$(dual_key)])
 
         $(esc(frame_name))   = _FRAME_BUNDLES[$(fn_q)]
         $(esc(coframe_name)) = _FRAME_BUNDLES[$(cfn_q)]
-        $(esc(basis_sym))    = _BASES[$(primal_key)]
-        $(esc(cobasis_sym))  = _BASES[$(dual_key)]
+        $(esc(bind_mf))      = _BASES[$(primal_key)]
+        $(esc(bind_mcf))     = _BASES[$(dual_key)]
 
-        println(
-            "Defined frame bundle $($(fn_q)) (moving frame $($(bq))) " *
-            "and coframe bundle $($(cfn_q)) (moving coframe $($(cq))) " *
-            "over $($(manifold_q))"
-        )
+        println($(frame_msg))
         nothing
     end
 end
 
 # ── kwargs parser ────────────────────────────────────────────────────────────
-function _parse_manifold_kwargs(kwargs)
-    coord_frame    = :∂    # coordinate frame for tangent bundle
-    coord_coframe  = :dx   # coordinate frame for cotangent bundle
-    moving_frame   = :e    # moving frame for tangent bundle
-    moving_coframe = :θ    # moving frame for cotangent bundle
+function _parse_manifold_kwargs(manifold_name::Symbol, kwargs)
+    default_bindings = _default_manifold_frame_bindings(manifold_name)
+    frame_bindings   = collect(default_bindings)
+    print_as         = collect(_DEFAULT_PRINT_AS)
+    frames_given     = false
+    print_as_given    = false
 
     for kw in kwargs
         Meta.isexpr(kw, :(=), 2) ||
             error("@def_manifold: expected keyword=value argument, got: $kw")
         k, v = kw.args
 
-        sym_val = if v isa Symbol
-            v
-        elseif v isa QuoteNode && v.value isa Symbol
-            v.value
-        else
-            nothing
-        end
-
-        if k === :coord_frame
-            sym_val !== nothing ||
-                error("@def_manifold: coord_frame must be a symbol, got $v")
-            coord_frame = sym_val
-        elseif k === :coord_coframe
-            sym_val !== nothing ||
-                error("@def_manifold: coord_coframe must be a symbol, got $v")
-            coord_coframe = sym_val
-        elseif k === :moving_frame
-            sym_val !== nothing ||
-                error("@def_manifold: moving_frame must be a symbol, got $v")
-            moving_frame = sym_val
-        elseif k === :moving_coframe
-            sym_val !== nothing ||
-                error("@def_manifold: moving_coframe must be a symbol, got $v")
-            moving_coframe = sym_val
+        if k === :frames
+            frame_bindings = _macro_symbol_vector(v, "@def_manifold frames")
+            frames_given = true
+        elseif k === :print_as
+            print_as = _macro_print_as_vector(v, "@def_manifold print_as")
+            print_as_given = true
+        elseif k in (:coord_frame, :coord_coframe, :moving_frame, :moving_coframe,
+                     :natural_frame, :natural_coframe)
+            error(
+                "@def_manifold: keyword :$k is no longer supported. " *
+                "Use frames=[cf_$(manifold_name), ccf_$(manifold_name), mf_$(manifold_name), mcf_$(manifold_name)] " *
+                "and print_as=[\"∂\", \"dx\", \"e\", \"θ\"]."
+            )
         else
             error(
                 "@def_manifold: unknown keyword :$k. " *
-                "Supported: coord_frame, coord_coframe, moving_frame, moving_coframe."
+                "Supported: frames, print_as."
             )
         end
     end
 
-    all_names = (coord_frame, coord_coframe, moving_frame, moving_coframe)
-    length(unique(all_names)) == 4 ||
-        error("@def_manifold: all four frame names must be distinct; got $all_names")
+    length(frame_bindings) == 4 ||
+        error("@def_manifold: frames must have exactly 4 symbols; got $(length(frame_bindings))")
+    length(print_as) == 4 ||
+        error("@def_manifold: print_as must have exactly 4 labels; got $(length(print_as))")
+    length(unique(frame_bindings)) == 4 ||
+        error("@def_manifold: all four frame bindings must be distinct; got $frame_bindings")
+    length(unique(print_as)) == 4 ||
+        error("@def_manifold: all four print_as labels must be distinct; got $print_as")
 
-    return coord_frame, coord_coframe, moving_frame, moving_coframe
+    return (
+        frame_bindings[1], frame_bindings[2], frame_bindings[3], frame_bindings[4],
+        print_as[1], print_as[2], print_as[3], print_as[4],
+        frames_given, print_as_given,
+    )
 end
 
 """
     @def_manifold <name> dim coord_indices frame_indices [kwargs...]
 
 Define a new manifold and automatically create its tangent and cotangent
-bundles, coordinate frames, and moving frame bundles.
+bundles, coordinate frames, and moving frames.
 
 Both index lists are **required**. Each list should have at least 4 symbols
 (a warning is issued if fewer).
@@ -327,8 +384,8 @@ at definition time.
 - `cotangent<name>`   → [`VBundle`](@ref) (`isdual = true`)
 - `frame<name>`       → [`FrameBundle`](@ref) (moving frame bundle)
 - `coframe<name>`     → [`FrameBundle`](@ref) (moving coframe bundle)
-- coordinate frame / coframe symbols (default `∂`, `dx`)
-- moving frame / coframe symbols (default `e`, `θ`)
+- coordinate frame bindings `cf_<name>`, `ccf_<name>` (default; display as `∂`, `dx`)
+- moving frame bindings `mf_<name>`, `mcf_<name>` (default; display as `e`, `θ`)
 - each symbol in `coord_indices` → [`CoordinateIndex`](@ref) (contravariant)
 - each symbol in `frame_indices` → [`FrameIndex`](@ref) (contravariant)
 
@@ -346,39 +403,39 @@ Frame indices:
 
 ### Keyword arguments
 
-| Keyword          | Default | Description                                           |
-|:-----------------|:--------|:------------------------------------------------------|
-| `coord_frame`    | `:∂`    | Basis name for the coordinate frame on the tangent bundle   |
-| `coord_coframe`  | `:dx`   | Basis name for the coordinate frame on the cotangent bundle |
-| `moving_frame`   | `:e`    | Basis name for the moving frame on the tangent bundle       |
-| `moving_coframe` | `:θ`    | Basis name for the moving frame on the cotangent bundle     |
+| Keyword     | Default | Description |
+|:------------|:--------|:------------|
+| `frames`    | `[cf_<name>, ccf_<name>, mf_<name>, mcf_<name>]` | Caller-scope binding symbols (coord frame, coord coframe, moving frame, moving coframe) |
+| `print_as`  | `["∂", "dx", "e", "θ"]` | Display label strings for the four bases |
 
-All four names must be distinct.
+All four entries in each vector must be distinct. Reusing a binding already
+registered for another manifold triggers a warning.
 
 ### Examples
 
 ~~~julia
-# Minimal — concrete dimension, default frame names
+# Minimal — default bindings cf_M, ccf_M, mf_M, mcf_M; display ∂, dx, e, θ
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 # Binds: M, tangentM, cotangentM, frameM, coframeM,
-#        ∂, dx (coordinate frames), e, θ (moving frames),
-#        a1, a2, a3, a4 (CoordinateIndex), A1, A2, A3, A4 (FrameIndex)
+#        cf_M, ccf_M, mf_M, mcf_M,
+#        a1..a4 (CoordinateIndex), A1..A4 (FrameIndex)
+ccf_M[a1]   # displays as dx[a1]
 
 # Parametric dimension
 @def_manifold M d [a1, a2, a3, a4] [A1, A2, A3, A4]
 
-# Custom frame names — all four must be distinct
-@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]   \\
-    coord_frame=:e_coord   coord_coframe=:θ_coord       \\
-    moving_frame=:e_mov    moving_coframe=:θ_mov
+# Custom bindings and display labels
+@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4] \\
+    frames=[:cfM, :ccfM, :mfM, :mcfM] \\
+    print_as=["∂", "dx", "e", "θ"]
 ~~~
 """
 macro def_manifold(name, dim, coord_indices, frame_indices, kwargs...)
     name isa Symbol ||
         error("@def_manifold: first argument must be a symbol, got $name")
 
-    coord_frame, coord_coframe, moving_frame, moving_coframe =
-        _parse_manifold_kwargs(kwargs)
+    bind_cf, bind_ccf, bind_mf, bind_mcf, print_cf, print_ccf, print_mf, print_mcf, _, _ =
+        _parse_manifold_kwargs(name, kwargs)
 
     dim_expr = if dim isa Integer
         dim
@@ -416,6 +473,7 @@ macro def_manifold(name, dim, coord_indices, frame_indices, kwargs...)
                 delete!(_VBUNDLES, _old_tb)
                 delete!(_VBUNDLES, _old_ctb)
             end
+            _unregister_basis_bindings_for_vbundles!([_old_tb, _old_ctb])
             for _ftype in (:coordinate, :frame)
                 delete!(_BASES, (_old_tb,  _ftype))
                 delete!(_BASES, (_old_ctb, _ftype))
@@ -492,13 +550,18 @@ macro def_manifold(name, dim, coord_indices, frame_indices, kwargs...)
 
         # ── Register coordinate frame ────────────────────────────────────
         $(_gen_coord_frame_registration_expr(
-            tangent_symbol, cotangent_symbol, coord_frame, coord_coframe))
+            tangent_symbol, cotangent_symbol,
+            bind_cf, bind_ccf,
+            print_cf, print_ccf,
+            name_symbol,
+        ))
 
         # ── Register moving frame ────────────────────────────────────────
         $(_gen_moving_frame_registration_expr(
             frame_bundle_name, coframe_bundle_name,
             tangent_symbol, cotangent_symbol,
-            moving_frame, moving_coframe,
+            bind_mf, bind_mcf,
+            print_mf, print_mcf,
             name_symbol,
         ))
 
@@ -552,6 +615,7 @@ macro undef_manifold(name)
             delete!(_VBUNDLES, _ctb_name)
         end
 
+        _unregister_basis_bindings_for_vbundles!([_tb_name, _ctb_name])
         for _ftype in (:coordinate, :frame)
             delete!(_BASES, (_tb_name,  _ftype))
             delete!(_BASES, (_ctb_name, _ftype))

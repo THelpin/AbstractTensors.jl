@@ -245,7 +245,7 @@ function Base.show(io::IO, ::MIME"text/html", v::VBundle)
         "<i>none</i>"
     else
         join([
-            "<code>$(b.name)</code> <span style=\"color:#666;\">($(b.category))</span>"
+            "<code>$(b.print_as)</code> <span style=\"color:#666;\">($(b.type))</span>"
             for b in v.bases
         ], ", ")
     end

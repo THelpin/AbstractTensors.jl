@@ -46,7 +46,7 @@ Provides the symbolic infrastructure:
 
 - Manifold and vector bundle definitions
 - Abstract index notations
-- Coordinate and local frame bases (`Basis.category` `:coordinate` or `:frame`)
+- Coordinate and local frame bases (`Basis.type` `:coordinate` or `:frame`; `name` is the binding symbol, `print_as` is the display string)
 - Tensor definitions with slot structure and symmetry groups
 - Connection definitions with associated covariant derivatives and curvature tensors
 - Metric tensors and index raising/lowering infrastructure, Levi-civita connection and associated curvature tensors
