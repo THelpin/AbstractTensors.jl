@@ -224,7 +224,7 @@ end
 # 3. show methods
 # =========================================
 
-function Base.show(io::IO, v::VBundle)
+function Base.show(io::IO, ::MIME"text/plain", v::VBundle)
     variance_label = v.isdual ? "cotangent" : "tangent"
     bases_str = isempty(v.bases) ? "none" : join(string.(v.bases), ", ")
     print(io, "VBundle($(v.name), $(variance_label), dual=$(v.dual), " *

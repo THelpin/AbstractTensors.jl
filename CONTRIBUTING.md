@@ -320,6 +320,47 @@ copied.
 (e.g. ` ```@docs `) with backticks — that syntax is unchanged. Only **docstring
 examples inside `src/*.jl`** use `~~~julia`.
 
+**Display (`show` / `repr`)**
+
+Package types must **not** override the 2-argument method
+
+```julia
+Base.show(io::IO, x::MyStruct)
+```
+
+Leave it at Julia’s default so `repr(x)` and other structural fallbacks stay
+correct (constructor-style output, macro expansion, debugging).
+
+Implement display only via MIME-specific 3-argument methods:
+
+```julia
+function Base.show(io::IO, ::MIME"text/plain", x::MyStruct)
+    # REPL / one-line human-readable display
+end
+
+function Base.show(io::IO, ::MIME"text/html", x::MyStruct)
+    # Jupyter / Pluto rich display (optional)
+end
+
+function Base.show(io::IO, ::MIME"text/latex", x::MyStruct)
+    # LaTeX for notebooks (optional; use where math notation matters)
+end
+```
+
+Guidelines:
+
+- Put **REPL** formatting in `MIME"text/plain"`, not in the 2-arg `show`.
+- Use `MIME"text/html"` (and `text/latex` where appropriate) for notebook
+  output; keep shared HTML helpers in `src/show.jl` when they apply to containers.
+- Do not document or add 2-arg `show` in docstrings for public types.
+- Reference implementation: `AbstractIndex` in `src/indices.jl` (plain + HTML).
+
+**Why:** Overriding `show(io, x)` changes `repr`, string interpolation, and some
+logging paths. MIME hooks limit custom formatting to contexts that request it.
+
+**Note:** Some older code still defines 2-arg `show` on a few types; new code and
+refactors should follow this policy. The canonical rule also appears in `AGENTS.md`.
+
 **Type annotations**
 
 - Function arguments should carry type annotations where the type is meaningful
@@ -399,7 +440,8 @@ first, discuss the design, then submit a PR.
    the ground truth for correct behavior.
 
 4. **Follow the code style conventions** above. PRs that ignore style will be
-   asked to fix formatting before review.
+   asked to fix formatting before review. Do not add new 2-arg `Base.show(io, x)`
+   on package types — use MIME `show` hooks only (see **Display** above).
 
 5. **Update docstrings** for any changed public API. If you add an exported
    symbol, it needs a docstring and a test.

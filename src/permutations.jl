@@ -99,7 +99,7 @@ identity_perm(n::Int) = SignedPerm(collect(1:n), Int8(1))
 
 # ── Display ──────────────────────────────────────────────────────────────────
 
-function Base.show(io::IO, g::SignedPerm)
+function Base.show(io::IO, ::MIME"text/plain", g::SignedPerm)
     sign_str = g.sign == Int8(1) ? "+" : "-"
     print(io, "SignedPerm($(g.images), $(sign_str)1)")
 end
@@ -299,7 +299,7 @@ is_trivial_symmetry(sym::SlotSymmetry) = length(sym.group_elements) == 1
 
 # ── Display ──────────────────────────────────────────────────────────────────
 
-function Base.show(io::IO, sym::SlotSymmetry)
+function Base.show(io::IO, ::MIME"text/plain", sym::SlotSymmetry)
     ord = length(sym.group_elements)
     if ord == 1
         print(io, "NoSymmetry(n=$(sym.n))")

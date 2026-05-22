@@ -331,7 +331,12 @@ Base.hash(t::FrameIndex, h::UInt)      = hash((FrameIndex, t.symbol, t.vbundle),
 #     print(io, "$(prefix)$(t.symbol) ∈ $(t.vbundle) ($(kind))")
 # end
 
-function Base.show(io::IO, t::AbstractIndex)
+function Base.show(io::IO, ::MIME"text/plain", t::AbstractIndex)
+    prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : ""
+    print(io, "$(prefix)$(t.symbol)")
+end
+
+function Base.show(io::IO, ::MIME"text/html", t::AbstractIndex)
     prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : ""
     print(io, "$(prefix)$(t.symbol)")
 end

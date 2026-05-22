@@ -12,7 +12,7 @@ module SymbolicTensors
 #   frames.jl           — Basis (type :coordinate|:frame), BasisElement,
 #                         BasisExpansion, ExpansionStyle (Coordinate|Frame),
 #                         basis_expansion(T[, style]) — canonical indices only
-
+include("utils.jl")
 include("types.jl")
 include("indices.jl")
 include("manifolds.jl")

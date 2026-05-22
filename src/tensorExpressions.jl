@@ -352,7 +352,7 @@ covariant indices are prefixed with `-` and contravariant indices are bare.
     g[a1, a2]     →  g[a1, a2]
     T[a1, -a2]    →  T[a1, -a2]
 """
-function Base.show(io::IO, e::TensorExpression)
+function Base.show(io::IO, ::MIME"text/plain", e::TensorExpression)
     idx_strs = map(e.indices) do idx
         is_down(idx) ? "-$(idx.symbol)" : "$(idx.symbol)"
     end

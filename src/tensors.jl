@@ -446,7 +446,7 @@ end
 # 8.  show methods
 # =========================================
 
-function Base.show(io::IO, T::Tensor)
+function Base.show(io::IO, ::MIME"text/plain", T::Tensor)
     slot_chars = map(T.slots) do vb
         haskey(_VBUNDLES, vb) ? (_VBUNDLES[vb].isdual ? "↓" : "↑") : "?"
     end

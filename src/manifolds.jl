@@ -684,7 +684,7 @@ list_manifolds() = collect(keys(_MANIFOLDS))
 # 10. show methods
 # =========================================
 
-function Base.show(io::IO, M::Manifold)
+function Base.show(io::IO, ::MIME"text/plain", M::Manifold)
     print(io, "Manifold($(M.name), dim=$(M.dim), " *
               "TBundle=$(M.tangent_bundle), CBundle=$(M.cotangent_bundle))")
 end

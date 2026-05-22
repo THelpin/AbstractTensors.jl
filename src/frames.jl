@@ -583,18 +583,18 @@ end
 # =========================================
 # 16. show — Basis
 # =========================================
-function Base.show(io::IO, b::Basis)
+function Base.show(io::IO, ::MIME"text/plain", b::Basis)
     print(io, b.print_as)
 end
 
-function Base.show(io::IO, ::MIME"text/plain", b::Basis)
-    type_label = b.type === :coordinate ? "coord" : "frame"
-    print(io, "Basis(", b.name, ", ", b.print_as, ", ", b.vbundle, ", ", type_label, ")")
+function Base.show(io::IO, ::MIME"text/html", b::Basis)
+    print(io, b.print_as)
 end
+
 # =========================================
 # 17. show — FrameBundle
 # =========================================
-function Base.show(io::IO, fb::FrameBundle)
+function Base.show(io::IO, ::MIME"text/plain", fb::FrameBundle)
     print(io, "FrameBundle($(fb.name), vbundle=$(fb.vbundle), dual=$(fb.dual), basis=$(fb.basis.print_as))")
 end
 
@@ -614,7 +614,8 @@ end
 # =========================================
 # 18. show — BasisElement
 # =========================================
-function Base.show(io::IO, be::BasisElement)
+
+function Base.show(io::IO, ::MIME"text/plain", be::BasisElement)
     idx    = be.index
     prefix = (haskey(_VBUNDLES, idx.vbundle) && is_down(idx)) ? "-" : ""
     print(io, "$(be.basis.print_as)[$(prefix)$(idx.symbol)]")
@@ -681,7 +682,7 @@ T[-a1,-a2] dx[a1] ⊗ dx[a2]
 T[-A1,-A2] θ[A1]  ⊗ θ[A2]
 S[a1,-a2]  ∂[-a1] ⊗ dx[a2]
 """
-function Base.show(io::IO, bx::BasisExpansion)
+function Base.show(io::IO, ::MIME"text/plain", bx::BasisExpansion)
     print(io, bx.component)
     if !isempty(bx.basis_elements)
         print(io, " ")
