@@ -5,7 +5,7 @@
 #
 #   CoordinateIndex  — labels coordinate-chart slots (∂/dx basis)
 #                      registered by @def_manifold (first list) and @add_indices
-#   BasisIndex       — labels ordered fibre-basis elements (e/θ or any VBundle)
+#   FrameIndex       — labels ordered fibre-basis elements (e/θ or any VBundle)
 #                      registered by @def_manifold (second list) and @def_vbundle
 #
 # Variance is encoded entirely by vbundle:
@@ -27,7 +27,7 @@ Supertype for index objects used in tensor expressions and basis elements.
 
 Concrete subtypes:
 - [`CoordinateIndex`](@ref) — coordinate-chart index (∂/dx)
-- [`BasisIndex`](@ref)      — fibre-basis index (e/θ or any VBundle basis)
+- [`FrameIndex`](@ref)      — fibre-basis index (e/θ or any VBundle basis)
 """
 abstract type AbstractIndex end
 
@@ -53,15 +53,20 @@ struct CoordinateIndex <: AbstractIndex
 end
 
 """
-    BasisIndex
+    FrameIndex
 
-An index symbol labelling an element of an ordered fibre basis.
+An index symbol labelling an element of an ordered fibre basis (a frame).
+
+Every vector bundle has an associated frame bundle whose fibre over a point
+is the set of all ordered bases of the fibre. A `FrameIndex` labels one
+such basis element, whether the bundle is the tangent bundle (moving frame
+`e`/`θ`) or an arbitrary vector bundle `E`.
 
 After `@def_manifold M 4 [a1,a2,a3,a4] [A1,A2,A3,A4]`, each symbol in the
-second list is bound as a contravariant `BasisIndex`:
+second list is bound as a contravariant `FrameIndex`:
 
-     A1          # BasisIndex(:A1, :tangentM)   — contravariant
-    -A1          # BasisIndex(:A1, :cotangentM) — covariant (unary -)
+     A1          # FrameIndex(:A1, :tangentM)   — contravariant
+    -A1          # FrameIndex(:A1, :cotangentM) — covariant (unary -)
 
 Also used by `@def_vbundle` for indices of any custom vector bundle.
 
@@ -70,7 +75,7 @@ Also used by `@def_vbundle` for indices of any custom vector bundle.
 - `symbol`  : the index name, e.g. `:A1` or `:v1`
 - `vbundle` : the home (primal) bundle, e.g. `:tangentM` or `:E`
 """
-struct BasisIndex <: AbstractIndex
+struct FrameIndex <: AbstractIndex
     symbol::Symbol
     vbundle::Symbol
 end
@@ -92,16 +97,16 @@ Populated by `@def_manifold` (first index list) and `@add_indices`.
 const _COORDINATE_INDICES = Dict{Symbol, Symbol}()
 
 """
-    _BASIS_INDICES :: Dict{Symbol, Symbol}
+    _FRAME_INDICES :: Dict{Symbol, Symbol}
 
-Maps each basis index symbol to its home (primal) vbundle.
+Maps each frame index symbol to its home (primal) vbundle.
 
-    _BASIS_INDICES[:A1] → :tangentM
-    _BASIS_INDICES[:v1] → :E
+    _FRAME_INDICES[:A1] → :tangentM
+    _FRAME_INDICES[:v1] → :E
 
 Populated by `@def_manifold` (second index list) and `@def_vbundle`.
 """
-const _BASIS_INDICES = Dict{Symbol, Symbol}()
+const _FRAME_INDICES = Dict{Symbol, Symbol}()
 
 
 function _register_index!(dict::Dict{Symbol,Symbol}, sym::Symbol, vbundle::Symbol, kind::Symbol)
@@ -115,10 +120,10 @@ function _register_index!(dict::Dict{Symbol,Symbol}, sym::Symbol, vbundle::Symbo
         )
     end
     # Also guard against cross-registry collision
-    other = kind === :coordinate ? _BASIS_INDICES : _COORDINATE_INDICES
+    other = kind === :coordinate ? _FRAME_INDICES : _COORDINATE_INDICES
     haskey(other, sym) &&
         error(
-            "Index :$sym is already registered as a $(kind === :coordinate ? "basis" : "coordinate") index. " *
+            "Index :$sym is already registered as a $(kind === :coordinate ? "frame" : "coordinate") index. " *
             "Symbol names must be unique across both registries."
         )
     dict[sym] = vbundle
@@ -133,15 +138,15 @@ register_coordinate_index!(sym::Symbol, vbundle::Symbol) =
     _register_index!(_COORDINATE_INDICES, sym, vbundle, :coordinate)
 
 """
-    register_basis_index!(sym::Symbol, vbundle::Symbol)
+    register_frame_index!(sym::Symbol, vbundle::Symbol)
 
-Register `sym` as a basis index belonging to primal vbundle `vbundle`.
+Register `sym` as a frame index belonging to primal vbundle `vbundle`.
 """
-register_basis_index!(sym::Symbol, vbundle::Symbol) =
-    _register_index!(_BASIS_INDICES, sym, vbundle, :basis)
+register_frame_index!(sym::Symbol, vbundle::Symbol) =
+    _register_index!(_FRAME_INDICES, sym, vbundle, :frame)
 
 unregister_coordinate_index!(sym::Symbol) = delete!(_COORDINATE_INDICES, sym)
-unregister_basis_index!(sym::Symbol)       = delete!(_BASIS_INDICES, sym)
+unregister_frame_index!(sym::Symbol)      = delete!(_FRAME_INDICES, sym)
 
 """
     unregister_index!(sym::Symbol)
@@ -150,28 +155,28 @@ Remove `sym` from whichever registry contains it. Silent if not registered.
 """
 function unregister_index!(sym::Symbol)
     delete!(_COORDINATE_INDICES, sym)
-    delete!(_BASIS_INDICES, sym)
+    delete!(_FRAME_INDICES, sym)
     nothing
 end
 
 # ── Registry accessors ────────────────────────────────────────────────────────
 
 is_coordinate_index(sym::Symbol) = haskey(_COORDINATE_INDICES, sym)
-is_basis_index(sym::Symbol)       = haskey(_BASIS_INDICES, sym)
+is_frame_index(sym::Symbol)      = haskey(_FRAME_INDICES, sym)
 
 """
     index_kind(sym::Symbol) -> Symbol
 
-Return `:coordinate` or `:basis` for a registered symbol. Errors if unknown.
+Return `:coordinate` or `:frame` for a registered symbol. Errors if unknown.
 """
 function index_kind(sym::Symbol)
     is_coordinate_index(sym) && return :coordinate
-    is_basis_index(sym)       && return :basis
+    is_frame_index(sym)      && return :frame
     error("Index :$sym is not registered.")
 end
 
 is_index_registered(sym::Symbol) =
-    is_coordinate_index(sym) || is_basis_index(sym)
+    is_coordinate_index(sym) || is_frame_index(sym)
 
 is_index_registered(t::AbstractIndex) = is_index_registered(t.symbol)
 
@@ -182,20 +187,20 @@ Return the home (primal) vbundle of `sym`. Errors if not registered.
 """
 function index_home_vbundle(sym::Symbol)
     is_coordinate_index(sym) && return _COORDINATE_INDICES[sym]
-    is_basis_index(sym)       && return _BASIS_INDICES[sym]
+    is_frame_index(sym)      && return _FRAME_INDICES[sym]
     error("Index :$sym is not registered. Was @def_manifold called?")
 end
 
 index_home_vbundle(t::AbstractIndex) = index_home_vbundle(t.symbol)
 
 """
-    basis_indices_for_vbundle(vb::Symbol) -> Vector{BasisIndex}
+    frame_indices_for_vbundle(vb::Symbol) -> Vector{FrameIndex}
 
-Return all [`BasisIndex`](@ref) objects registered with home vbundle `vb`.
+Return all [`FrameIndex`](@ref) objects registered with home vbundle `vb`.
 """
-function basis_indices_for_vbundle(vb::Symbol)
-    syms = sort([s for (s, home) in _BASIS_INDICES if home == vb])
-    [BasisIndex(s, vb) for s in syms]
+function frame_indices_for_vbundle(vb::Symbol)
+    syms = sort([s for (s, home) in _FRAME_INDICES if home == vb])
+    [FrameIndex(s, vb) for s in syms]
 end
 
 """
@@ -206,7 +211,7 @@ Return the contravariant (upper) form of registered symbol `sym`.
 function up(sym::Symbol)
     home = index_home_vbundle(sym)
     is_coordinate_index(sym) && return CoordinateIndex(sym, home)
-    return BasisIndex(sym, home)
+    return FrameIndex(sym, home)
 end
 
 
@@ -219,7 +224,7 @@ function _flip_index(t::AbstractIndex)
         error("VBundle $(t.vbundle) is not registered.")
     dual_vb = _VBUNDLES[t.vbundle].dual
     t isa CoordinateIndex && return CoordinateIndex(t.symbol, dual_vb)
-    return BasisIndex(t.symbol, dual_vb)
+    return FrameIndex(t.symbol, dual_vb)
 end
 
 """
@@ -241,6 +246,7 @@ Base.:+(t::AbstractIndex) = t
 # =========================================
 # 5.  Variance predicates
 # =========================================
+
 """
     is_up(t::AbstractIndex) -> Bool
 
@@ -248,17 +254,6 @@ Return `true` if `t` is contravariant (upper): its `vbundle` is primal
 (`isdual == false`), e.g. `:tangentM`.
 
 Also available as `t.is_up` via [`Base.getproperty`](@ref).
-
-# Examples
-
-After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`, `is_up(a1)` is
-`true` and `is_up(-a1)` is `false`.
-
-~~~julia
-@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-is_up(a1)   # true
-is_up(-a1)  # false
-~~~
 """
 function is_up(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")
@@ -272,17 +267,6 @@ Return `true` if `t` is covariant (lower): its `vbundle` is dual
 (`isdual == true`), e.g. `:cotangentM`.
 
 Also available as `t.is_down` via [`Base.getproperty`](@ref).
-
-# Examples
-
-After `@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]`, `is_down(-a1)` is
-`true` and `is_down(a1)` is `false`.
-
-~~~julia
-@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-is_down(-a1)  # true
-is_down(a1)   # false
-~~~
 """
 function is_down(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")
@@ -329,12 +313,12 @@ end
 
 Base.:(==)(a::CoordinateIndex, b::CoordinateIndex) =
     a.symbol == b.symbol && a.vbundle == b.vbundle
-Base.:(==)(a::BasisIndex, b::BasisIndex) =
+Base.:(==)(a::FrameIndex, b::FrameIndex) =
     a.symbol == b.symbol && a.vbundle == b.vbundle
 Base.:(==)(a::AbstractIndex, b::AbstractIndex) = false
 
 Base.hash(t::CoordinateIndex, h::UInt) = hash((CoordinateIndex, t.symbol, t.vbundle), h)
-Base.hash(t::BasisIndex, h::UInt)       = hash((BasisIndex, t.symbol, t.vbundle), h)
+Base.hash(t::FrameIndex, h::UInt)      = hash((FrameIndex, t.symbol, t.vbundle), h)
 
 
 # =========================================
@@ -343,7 +327,7 @@ Base.hash(t::BasisIndex, h::UInt)       = hash((BasisIndex, t.symbol, t.vbundle)
 
 function Base.show(io::IO, t::AbstractIndex)
     prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : "+"
-    kind   = t isa CoordinateIndex ? "coord" : "basis"
+    kind   = t isa CoordinateIndex ? "coord" : "frame"
     print(io, "$(prefix)$(t.symbol) ∈ $(t.vbundle) ($(kind))")
 end
 
@@ -358,7 +342,6 @@ end
 Register extra **coordinate** index symbols to the tangent bundle of manifold
 `M` and bind each to a contravariant [`CoordinateIndex`](@ref) in scope.
 
-# Example
 ~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @add_indices M a5 a6
@@ -404,13 +387,13 @@ macro add_indices(manifold_name, idx_syms...)
             getfield(_tb_vb, :name), getfield(_tb_vb, :manifold), getfield(_tb_vb, :dim),
             getfield(_tb_vb, :isdual), getfield(_tb_vb, :dual),
             vcat(getfield(_tb_vb, :coordinate_indices), _extra_tb),
-            getfield(_tb_vb, :basis_indices),
+            getfield(_tb_vb, :frame_indices),
         )
         _VBUNDLES[$(cotangent_sym)] = VBundle(
             getfield(_ctb_vb, :name), getfield(_ctb_vb, :manifold), getfield(_ctb_vb, :dim),
             getfield(_ctb_vb, :isdual), getfield(_ctb_vb, :dual),
             vcat(getfield(_ctb_vb, :coordinate_indices), _extra_ct),
-            getfield(_ctb_vb, :basis_indices),
+            getfield(_ctb_vb, :frame_indices),
         )
         $(esc(Symbol("tangent", manifold_name)))   = _VBUNDLES[$(tangent_sym)]
         $(esc(Symbol("cotangent", manifold_name))) = _VBUNDLES[$(cotangent_sym)]
@@ -426,23 +409,8 @@ end
 """
     validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
 
-Check that every symbol in `syms` is a registered **coordinate** index whose
-home (primal) vbundle is `vbundle`.
-
-Throws `ErrorException` if any symbol is missing from `_COORDINATE_INDICES` or
-its home bundle differs from `vbundle`. Returns `nothing` if all checks pass.
-
-Used internally when validating lists of coordinate symbols (e.g. after
-[`@def_manifold`](@ref) or [`@add_indices`](@ref)).
-
-# Examples
-
-~~~julia
-@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-validate_indices([:a1, :a2], :tangentM)   # ok
-validate_indices([:a1, :NOT_REG], :tangentM)   # throws — unknown symbol
-validate_indices([:a1], :wrongBundle)         # throws — wrong home bundle
-~~~
+Check that every symbol in `syms` is a registered coordinate index whose
+home (primal) vbundle is `vbundle`. Throws on any failure.
 """
 function validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
     for s in syms
@@ -464,31 +432,13 @@ end
     validate_contraction(a::AbstractIndex, b::AbstractIndex)
 
 Check that `a` and `b` are a valid Einstein summation pair.
-
-Requires:
-
-1. Same index kind (`CoordinateIndex` with `CoordinateIndex`, or
-   `BasisIndex` with `BasisIndex`).
-2. Same symbol (`a.symbol == b.symbol`).
-3. Dual vbundles ([`is_dual_vbundles`](@ref) on `a.vbundle` and `b.vbundle`).
-
-Throws `ErrorException` if any check fails; returns `nothing` otherwise.
-
-For a non-throwing predicate, see [`contractable`](@ref).
-
-# Examples
-~~~julia
-@def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-validate_contraction(a1, -a1)   # ok — dual partners, same symbol
-validate_contraction(a1, a2)    # throws — different symbols
-validate_contraction(a1, a1)    # throws — same vbundle (not dual)
-~~~
+Throws on any failure; returns `nothing` otherwise.
 """
 function validate_contraction(a::AbstractIndex, b::AbstractIndex)
     typeof(a) === typeof(b) ||
         error(
             "Cannot contract $(a.symbol) ($(typeof(a))) with $(b.symbol) ($(typeof(b))): " *
-            "indices must be of the same kind (both coordinate or both basis)."
+            "indices must be of the same kind (both coordinate or both frame)."
         )
     same_symbol(a, b) ||
         error(
@@ -506,10 +456,10 @@ end
 # Exports
 # =========================================
 
-export AbstractIndex, CoordinateIndex, BasisIndex
+export AbstractIndex, CoordinateIndex, FrameIndex
 export flip, up
-export _COORDINATE_INDICES, _BASIS_INDICES
+export _COORDINATE_INDICES, _FRAME_INDICES
 export is_up, is_down
-export basis_indices_for_vbundle
-export register_coordinate_index!, register_basis_index!, unregister_index!
+export frame_indices_for_vbundle
+export register_coordinate_index!, register_frame_index!, unregister_index!
 export @add_indices
