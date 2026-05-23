@@ -1454,6 +1454,19 @@ end
 
         # 14. different tensor heads with same slot structure is OK
         @test (fab + t_cov; true)
+
+        # 15. bulk sum — one merge pass (not chained + fold)
+        bulk = [term(gab), term(gab2), term(gab)]
+        s_bulk = sum(bulk)
+        @test s_bulk isa TensorComponentSum
+        @test length(terms_of(s_bulk)) == 2
+        @test coeff_of(only(filter(t -> body_of(t) == gab, terms_of(s_bulk)))) == 2
+        s_three = sum([term(gab), term(gab), term(gab)])
+        s_fold = term(gab) + term(gab) + term(gab)
+        @test length(terms_of(s_three)) == length(terms_of(s_fold)) == 1
+        @test coeff_of(terms_of(s_three)[1]) == coeff_of(terms_of(s_fold)[1]) == 3
+        @test body_of(terms_of(s_three)[1]) == body_of(terms_of(s_fold)[1])
+        @test is_zero(sum(TensorComponentTerm[]))
     end
 
 

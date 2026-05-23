@@ -148,21 +148,6 @@ Base.:*(a::TensorComponent, b::TensorComponentTerm) = term(a) * b
 Base.:*(a::TensorComponentTerm, p::TensorComponentProduct) = a * term(p)
 Base.:*(p::TensorComponentProduct, b::TensorComponentTerm) = term(p) * b
 
-# Product + Product
-Base.:+(a::TensorComponentProduct, b::TensorComponentProduct) = term(a) + term(b)
-
-# Product + Component / Component + Product
-Base.:+(a::TensorComponentProduct, b::TensorComponent) = term(a) + term(b)
-Base.:+(a::TensorComponent, b::TensorComponentProduct) = term(a) + term(b)
-
-# Product + Term / Term + Product
-Base.:+(a::TensorComponentProduct, b::TensorComponentTerm) = term(a) + b
-Base.:+(a::TensorComponentTerm, b::TensorComponentProduct) = a + term(b)
-
-# Product + Sum / Sum + Product
-Base.:+(a::TensorComponentProduct, b::TensorComponentSum) = term(a) + b
-Base.:+(a::TensorComponentSum, b::TensorComponentProduct) = a + term(b)
-
 
 # =========================================
 # 3.  TensorComponentSum — sole merge bottleneck
@@ -300,6 +285,14 @@ Base.:+(a::TensorComponentSum, b::TensorComponentTerm) =
 Base.:+(a::TensorComponentSum, b::TensorComponentSum) =
     TensorComponentSum(vcat(_collect_terms(a), _collect_terms(b)))
 
+"""
+    Base.sum(terms::AbstractArray{<:TensorComponentTerm})
+
+Bulk-add terms in a single [`TensorComponentSum`](@ref) merge pass.
+Prefer this over chained `+` / the default `sum` fold for long vectors.
+"""
+Base.sum(terms::AbstractArray{<:TensorComponentTerm}) = TensorComponentSum(terms)
+
 function Base.:+(::ScalarLike, ::AbstractTensorComponentExpr)
     throw(ArgumentError(
         "Cannot add scalar coefficient to tensor expression without a body. " *
@@ -320,6 +313,13 @@ Base.:+(a::TensorComponent, b::TensorComponentTerm) = term(a) + b
 Base.:+(a::TensorComponentTerm, b::TensorComponent) = a + term(b)
 Base.:+(a::TensorComponent, b::TensorComponentSum) = term(a) + b
 Base.:+(a::TensorComponentSum, b::TensorComponent) = a + term(b)
+Base.:+(a::TensorComponentProduct, b::TensorComponentProduct) = term(a) + term(b)
+Base.:+(a::TensorComponentProduct, b::TensorComponent) = term(a) + term(b)
+Base.:+(a::TensorComponent, b::TensorComponentProduct) = term(a) + term(b)
+Base.:+(a::TensorComponentProduct, b::TensorComponentTerm) = term(a) + b
+Base.:+(a::TensorComponentTerm, b::TensorComponentProduct) = a + term(b)
+Base.:+(a::TensorComponentProduct, b::TensorComponentSum) = term(a) + b
+Base.:+(a::TensorComponentSum, b::TensorComponentProduct) = a + term(b)
 
 Base.:-(a::TensorComponent) = -term(a)
 Base.:-(p::TensorComponentProduct) = -term(p)
