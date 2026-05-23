@@ -2,7 +2,8 @@ using SymbolicTensors
 using SymbolicTensors: contractable, register_coordinate_index!, register_frame_index!,
     unregister_index!, index_home_vbundle, validate_indices, validate_contraction,
     is_dual_vbundles, show_registry, _BOUND_BASIS_SYMBOLS, FrameIndex,
-    TensorComponentTerm, TensorComponentSum, term, coeff_of, body_of, terms_of, is_zero,
+    TensorComponentTerm, TensorComponentSum, TensorComponentProduct,
+    term, coeff_of, body_of, terms_of, is_zero, factors_of,
     scalar_add, scalar_mul, is_scalar_zero
 using Test
 using Symbolics
@@ -1443,19 +1444,82 @@ end
         @test (repr(MIME"text/latex"(), s3); true)
         @test (repr(MIME"text/html"(), s3); true)
 
-        # 12. block TensorComponentTerm * TensorComponentTerm
-        @test_throws ArgumentError t1 * t1
-
-        # 13. scalar + tensor error
+        # 12. scalar + tensor error
         @test_throws ArgumentError 1 + t1
         @test_throws ArgumentError t1 + 1
 
-        # 14. incompatible slot structure for same tensor head
+        # 13. incompatible slot structure for same tensor head
         @test_throws ArgumentError t_cov + t_mixed
         @test_throws ArgumentError fab + t_cov + t_mixed + 3 * t_cov
 
-        # 15. different tensor heads with same slot structure is OK
+        # 14. different tensor heads with same slot structure is OK
         @test (fab + t_cov; true)
+    end
+
+
+    @testset "TensorComponentProduct" begin
+        _clear_all_registries!()
+        @def_manifold TP_M 4 [tp_a1, tp_a2, tp_a3, tp_a4] [TP_B1, TP_B2, TP_B3, TP_B4]
+        @def_metric tp_g tangentTP_M
+        @def_tensor TP_F [cotangentTP_M, cotangentTP_M]
+        @def_tensor TP_T [cotangentTP_M, cotangentTP_M]
+
+        g_comp = tp_g[-tp_a3, -tp_a4]
+        F_comp = TP_F[-tp_a1, -tp_a2]
+        T_comp = TP_T[-tp_a1, -tp_a2]
+
+        # 1. geometric product of two components
+        p_gf = g_comp * F_comp
+        @test p_gf isa TensorComponentProduct
+        @test length(factors_of(p_gf)) == 2
+        @test g_comp * F_comp == F_comp * g_comp
+
+        # 2. target: distribute metric over merged sum
+        inner = F_comp + T_comp + 3 * T_comp
+        expr = g_comp * inner
+        @test expr isa TensorComponentSum
+        @test length(terms_of(expr)) == 2
+        t_terms = terms_of(expr)
+        t_with_T = only(
+            filter(t_terms) do t
+                b = body_of(t)
+                b isa TensorComponentProduct &&
+                    any(c -> c.tensor === TP_T, factors_of(b))
+            end,
+        )
+        @test coeff_of(t_with_T) == 4
+
+        # 3. incompatible slot structure still errors
+        t_mixed = TP_T[tp_a1, tp_a1]
+        @test_throws ArgumentError T_comp + t_mixed
+
+        # 4. term × term: coeffs multiply, body is product
+        tt = term(g_comp) * term(F_comp)
+        @test tt isa TensorComponentTerm
+        @test coeff_of(tt) == 1
+        @test body_of(tt) isa TensorComponentProduct
+
+        # 5. is_zero / empty sum unchanged
+        z = TensorComponentTerm(1, g_comp) + TensorComponentTerm(-1, g_comp)
+        @test is_zero(z)
+
+        # 6. MIME show for product and distributed expression
+        @test (repr(MIME"text/plain"(), p_gf); true)
+        @test (repr(MIME"text/latex"(), p_gf); true)
+        @test (repr(MIME"text/html"(), p_gf); true)
+        @test (repr(MIME"text/plain"(), expr); true)
+        @test (repr(MIME"text/latex"(), expr); true)
+        @test (repr(MIME"text/html"(), expr); true)
+
+        # 7. strict inner constructor
+        @test_throws ArgumentError TensorComponentProduct(g_comp)
+
+        # 8. product × sum and unary/binary minus sugar
+        p_gf = g_comp * F_comp
+        inner2 = F_comp + T_comp
+        @test (p_gf * inner2) isa TensorComponentSum
+        @test (-p_gf) isa TensorComponentTerm
+        @test (p_gf - p_gf) isa TensorComponentSum
     end
 
 
