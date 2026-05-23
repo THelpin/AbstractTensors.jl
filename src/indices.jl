@@ -73,7 +73,7 @@ Also used by `@def_vbundle` for indices of any custom vector bundle.
 ### Fields
 
 - `symbol`  : the index name, e.g. `:A1` or `:v1`
-- `vbundle` : the home (primal) bundle, e.g. `:tangentM` or `:E`
+- `vbundle` : the home (ref) vbundle, e.g. `:tangentM` or `:E`
 """
 struct FrameIndex <: AbstractIndex
     symbol::Symbol
@@ -88,7 +88,7 @@ end
 """
     _COORDINATE_INDICES :: Dict{Symbol, Symbol}
 
-Maps each coordinate index symbol to its home (primal) vbundle.
+Maps each coordinate index symbol to its home (ref) vbundle.
 
     _COORDINATE_INDICES[:a1] → :tangentM
 
@@ -99,7 +99,7 @@ const _COORDINATE_INDICES = Dict{Symbol, Symbol}()
 """
     _FRAME_INDICES :: Dict{Symbol, Symbol}
 
-Maps each frame index symbol to its home (primal) vbundle.
+Maps each frame index symbol to its home (ref) vbundle.
 
     _FRAME_INDICES[:A1] → :tangentM
     _FRAME_INDICES[:v1] → :E
@@ -132,7 +132,7 @@ end
 """
     register_coordinate_index!(sym::Symbol, vbundle::Symbol)
 
-Register `sym` as a coordinate index belonging to primal vbundle `vbundle`.
+Register `sym` as a coordinate index belonging to ref vbundle `vbundle`.
 """
 register_coordinate_index!(sym::Symbol, vbundle::Symbol) =
     _register_index!(_COORDINATE_INDICES, sym, vbundle, :coordinate)
@@ -140,7 +140,7 @@ register_coordinate_index!(sym::Symbol, vbundle::Symbol) =
 """
     register_frame_index!(sym::Symbol, vbundle::Symbol)
 
-Register `sym` as a frame index belonging to primal vbundle `vbundle`.
+Register `sym` as a frame index belonging to ref vbundle `vbundle`.
 """
 register_frame_index!(sym::Symbol, vbundle::Symbol) =
     _register_index!(_FRAME_INDICES, sym, vbundle, :frame)
@@ -183,7 +183,7 @@ is_index_registered(t::AbstractIndex) = is_index_registered(t.symbol)
 """
     index_home_vbundle(sym::Symbol) -> Symbol
 
-Return the home (primal) vbundle of `sym`. Errors if not registered.
+Return the home (ref) vbundle of `sym`. Errors if not registered.
 """
 function index_home_vbundle(sym::Symbol)
     is_coordinate_index(sym) && return _COORDINATE_INDICES[sym]
@@ -419,7 +419,7 @@ end
     validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
 
 Check that every symbol in `syms` is a registered coordinate index whose
-home (primal) vbundle is `vbundle`. Throws on any failure.
+home (ref) vbundle is `vbundle`. Throws on any failure.
 """
 function validate_indices(syms::Vector{Symbol}, vbundle::Symbol)
     for s in syms

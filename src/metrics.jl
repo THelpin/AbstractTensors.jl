@@ -93,7 +93,7 @@ macro def_metric(name, vbundle_expr)
         getfield(_vb, :isref) ||
             error(
                 "@def_metric: vbundle $($(vbundle_sym)) is not a vbundle of reference " *
-                "(isref must be true). Pass the primal bundle, e.g. tangentM not cotangentM."
+                "(isref must be true). Pass the ref vbundle, e.g. tangentM not cotangentM."
             )
 
         local _manifold_sym = getfield(_vb, :manifold)

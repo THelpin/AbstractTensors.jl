@@ -365,10 +365,10 @@ end
 
 Create an arbitrary local frame bundle for `vbundle_name` and its dual.
 
-- `frame_name`   : primal frame bundle name (e.g. `frameE`)
-- `vbundle_name` : primal vbundle (must be in `_VBUNDLES`)
-- `basis_name`   : frame basis for the primal bundle (e.g. `e`)
-- `cobasis_name` : frame basis for the dual bundle (e.g. `θ`)
+- `frame_name`   : frame bundle name (e.g. `frameE`)
+- `vbundle_name` : vbundle of reference (must be in `_VBUNDLES`)
+- `basis_name`   : frame basis for the ref vbundle (e.g. `e`)
+- `cobasis_name` : frame basis for the dual vbundle (e.g. `θ`)
 
 Dual frame bundle name: `Symbol("co", frame_name)` (e.g. `frameE` → `coframeE`).
 
@@ -401,7 +401,7 @@ macro def_frame_bundle(frame_name, vbundle_name, basis_name, cobasis_name)
     vb_q           = QuoteNode(vbundle_name)
     basis_q        = QuoteNode(basis_name)
     cobasis_q      = QuoteNode(cobasis_name)
-    primal_key_q   = QuoteNode((vbundle_name, :frame))
+    ref_key_q   = QuoteNode((vbundle_name, :frame))
 
     quote
         haskey(_VBUNDLES, $(vb_q)) ||
@@ -421,19 +421,19 @@ macro def_frame_bundle(frame_name, vbundle_name, basis_name, cobasis_name)
         _warn_and_register_basis_binding!($(basis_q),   $(vb_q),       :frame, _fb_manifold)
         _warn_and_register_basis_binding!($(cobasis_q), _fb_dual_vb,   :frame, _fb_manifold)
 
-        _BASES[$(primal_key_q)] = Basis(
+        _BASES[$(ref_key_q)] = Basis(
             $(basis_q), $(vb_q), :frame, $(QuoteNode(string(basis_name)))
         )
         _BASES[_fb_dual_key] = Basis(
             $(cobasis_q), _fb_dual_vb, :frame, $(QuoteNode(string(cobasis_name)))
         )
 
-        _FRAME_BUNDLES[$(fn_q)]  = FrameBundle($(fn_q),  $(vb_q),    $(cfn_q), _BASES[$(primal_key_q)])
+        _FRAME_BUNDLES[$(fn_q)]  = FrameBundle($(fn_q),  $(vb_q),    $(cfn_q), _BASES[$(ref_key_q)])
         _FRAME_BUNDLES[$(cfn_q)] = FrameBundle($(cfn_q), _fb_dual_vb, $(fn_q), _BASES[_fb_dual_key])
 
         $(esc(frame_name))    = _FRAME_BUNDLES[$(fn_q)]
         $(esc(coframe_name))  = _FRAME_BUNDLES[$(cfn_q)]
-        $(esc(basis_name))    = _BASES[$(primal_key_q)]
+        $(esc(basis_name))    = _BASES[$(ref_key_q)]
         $(esc(cobasis_name))  = _BASES[_fb_dual_key]
 
         println(
@@ -507,7 +507,7 @@ function _canonical_indices(T::Tensor, style::ExpansionStyle)::TensorComponent
         index_constructor = btype === :coordinate ? CoordinateIndex : FrameIndex
 
         dual_vb = _VBUNDLES[slot_vb].dual
-        pool_id = min(slot_vb, dual_vb) # Unique ID for the primal/dual pair
+        pool_id = min(slot_vb, dual_vb) # Unique ID for the ref vbundle and its dual
         
         syms = sort([s for (s, home) in index_registry if home == slot_vb || home == dual_vb])
 

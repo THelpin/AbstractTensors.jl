@@ -10,18 +10,17 @@
 #   g[a1, a2]               — valid: contravariant metric (raised by implicit g)
 #
 # Design principle: slot variance (stored on Tensor.slots) records the
-# *canonical* index placement declared at @def_tensor time. It is NOT
-# enforced at TensorComponent construction. Raising and lowering indices
-# is a separate algebraic operation (future raise_index / lower_index).
+# *canonical* index placement declared at @def_tensor time. When the tensor
+# has an associated metric, per-slot variance is not enforced at construction
+# (the metric identifies V with V*). Without a metric, each index must lie
+# exactly on the declared slot vbundle.
 #
 # What IS validated at construction:
 #   - Arity: number of indices must equal T.rank.
-#   - Manifold membership: each index's vbundle must lie over T.manifold
-#     (custom vbundles such as E are allowed, not only tangentM).
-#
-# What is NOT validated:
-#   - Variance (up/down) of each index against the slot declaration.
-#     T[-a1,-a2] with metric g allows g[a1,a2], T[a1,-a2], etc.
+#   - Manifold membership: each index's vbundle lies over T.manifold.
+#   - Vbundle of reference: each index derives from T.vbundle.
+#   - Per slot (no metric): idx.vbundle == T.slots[i] (exact canonical placement).
+#   - Per slot (with metric): skipped — any up/down on T.vbundle is allowed.
 #
 # The struct is lazy and inert: no contraction, no symmetry reduction
 # happens at construction time. Algebra (*,+) and contraction are
@@ -51,11 +50,13 @@ Constructed via `getindex` on a [`Tensor`](@ref):
 
 **Validation at construction time:**
 - `length(idxs) == T.rank`
-- *Manifold membership*: each index's `vbundle` must belong to `T.manifold`
+- *Manifold membership*: each index's `vbundle` belongs to `T.manifold`
+- *Vbundle of reference*: `_vbundle_of_reference_of(idx.vbundle) == T.vbundle`
+- *Per slot* (only if `T.metric === nothing`): `idx.vbundle == T.slots[i]`
+  (exact match to canonical slot placement)
 
-**Not validated:**
-- *Variance* (up vs down) against `T.slots`. The canonical slot structure
-  is metadata for index raising/lowering, not a construction gate.
+**With a metric** (`T.metric !== nothing`): per-slot checks are skipped;
+`g[a1, a2]` is valid even when canonical slots are `[cotangentM, cotangentM]`.
 
 The expression is **lazy and inert**: no contraction, canonicalization, or
 symmetry reduction is performed at construction time.
@@ -116,27 +117,27 @@ Accepted argument types per slot:
 **Validated:**
 1. **Arity** — `length(idxs) == T.rank`
 2. **Manifold membership** — each index's vbundle lies over `T.manifold`
-
-**Not validated:**
-- Variance against `T.slots`. Any up/down combination is accepted.
-  `g[a1, a2]`, `T[a1, -a2]`, `T[-a1, -a2]` are all valid expressions.
+3. **Vbundle of reference** — each index derives from `T.vbundle`
+4. **Per slot** — if `T.metric === nothing`, `idx.vbundle == T.slots[i]` exactly;
+   if `T.metric !== nothing`, per-slot vbundle matching is skipped
 
 # Examples
 ~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @def_metric g tangentM
-@def_tensor F[-a1, -a2] M symmetries=[antisymmetric(2)]
+@def_tensor T [cotangentM, cotangentM]
 
-g[-a1, -a2]              # covariant metric (canonical form)
-g[a1, a2]                # contravariant metric (raised) — valid
-g[a1, -a2]               # mixed — valid
-F[-a1, -a2]              # covariant F (canonical form)
-F[a1, a2]                # contravariant F — valid
-F[-a1, -a2, -a1]         # error: rank mismatch
+g[-a1, -a2]              # covariant (canonical)
+g[a1, a2]                # raised — valid (metric present)
+
+@def_tensor F [cotangentM, cotangentM]   # no metric on M
+F[-a1, -a2]              # valid
+F[a1, a2]                # error: a1 is on tangentM, slot expects cotangentM
 
 @def_vbundle E M 4 [B1, B2, B3, B4]
 @def_tensor K [E, dualE]
-K[-B1, B2]               # valid: frame indices on custom bundle E
+K[B1, -B2]               # valid
+K[-B1, B2]               # error: wrong slot vbundles
 ~~~
 """
 function Base.getindex(T::Tensor, idxs...)
@@ -161,8 +162,8 @@ function Base.getindex(T::Tensor, idxs...)
             "unregistered manifold :$(T.manifold)."
         )
 
-    # Step 3: manifold membership — index vbundle must lie over T.manifold.
-    # Variance is NOT checked — any up/down combination is valid.
+    ref_vb = T.vbundle
+
     for i in 1:n
         idx = ti[i]
 
@@ -182,6 +183,23 @@ function Base.getindex(T::Tensor, idxs...)
                 ":$(_VBUNDLES[idx.vbundle].manifold), but tensor $(T.print_as) " *
                 "is on :$(T.manifold)."
             )
+
+        _vbundle_of_reference_of(idx.vbundle) == ref_vb ||
+            error(
+                "TensorComponent: index :$(idx.symbol) has vbundle of reference " *
+                ":$(_vbundle_of_reference_of(idx.vbundle)), but tensor " *
+                "$(T.print_as) has vbundle of reference :$ref_vb."
+            )
+
+        if T.metric === nothing
+            slot_vb = T.slots[i]
+            idx.vbundle == slot_vb ||
+                error(
+                    "TensorComponent: index :$(idx.symbol) is on vbundle " *
+                    ":$(idx.vbundle), but slot $i of $(T.print_as) expects " *
+                    ":$slot_vb (tensor has no metric for raising/lowering)."
+                )
+        end
     end
 
     TensorComponent(T, ti)

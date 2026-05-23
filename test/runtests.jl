@@ -1279,15 +1279,58 @@ end
         @def_vbundle TC_E TC_M 4 [TC_B1, TC_B2, TC_B3, TC_B4]
         @def_tensor TC_K [TC_E, dualTC_E]
 
-        comp = TC_K[-TC_B1, TC_B2]
+        @test TC_K.vbundle == :TC_E
+        @test TC_K.metric === nothing
+
+        comp = TC_K[TC_B1, -TC_B2]
         @test comp isa TensorComponent
-        @test comp.indices[1].vbundle == :dualTC_E
-        @test comp.indices[2].vbundle == :TC_E
+        @test comp.indices[1].vbundle == :TC_E
+        @test comp.indices[2].vbundle == :dualTC_E
         @test tensor_of(comp) === TC_K
+        @test variance_matches_canonical(comp)
+
+        # wrong vbundle of reference (coordinate on tangentM, tensor on E)
+        @test_throws ErrorException TC_K[-tc_a1, -TC_B2]
+        @test_throws ErrorException TC_K[tc_a1, -TC_B2]
+
+        # wrong slot vbundles without metric (dual-flipped notation)
+        @test_throws ErrorException TC_K[-TC_B1, TC_B2]
+        @test_throws ErrorException TC_K[TC_B1, TC_B2]
 
         # index from another manifold → error
         @def_manifold TC2_M 4 [tc2_a1, tc2_a2, tc2_a3, tc2_a4] [TC2M_B1, TC2M_B2, TC2M_B3, TC2M_B4]
         @test_throws ErrorException TC_K[tc2_a1, TC_B2]
+    end
+
+
+    @testset "TensorComponent — exact slots without metric" begin
+        _clear_all_registries!()
+        @def_manifold EX_M 4 [ex_a1, ex_a2, ex_a3, ex_a4] [EXM_B1, EXM_B2, EXM_B3, EXM_B4]
+        @def_tensor EX_T [cotangentEX_M, cotangentEX_M]
+        @test EX_T.metric === nothing
+
+        comp = EX_T[-ex_a1, -ex_a2]
+        @test comp isa TensorComponent
+        @test variance_matches_canonical(comp)
+
+        @test_throws ErrorException EX_T[ex_a1, ex_a2]
+        @test_throws ErrorException EX_T[ex_a1, -ex_a2]
+    end
+
+
+    @testset "TensorComponent — metric skips per-slot vbundle check" begin
+        _clear_all_registries!()
+        @def_manifold TM_M 4 [tm_a1, tm_a2, tm_a3, tm_a4] [TMM_B1, TMM_B2, TMM_B3, TMM_B4]
+        @def_metric tm_g tangentTM_M
+        @def_tensor TM_T [cotangentTM_M, cotangentTM_M]
+
+        @test TM_T.metric == :tm_g
+        comp = TM_T[tm_a1, tm_a2]
+        @test comp isa TensorComponent
+        @test !variance_matches_canonical(comp)
+        comp2 = TM_T[-tm_a1, -tm_a2]
+        @test comp2 isa TensorComponent
+        @test variance_matches_canonical(comp2)
     end
 
 end # @testset "SymbolicTensors.jl"
