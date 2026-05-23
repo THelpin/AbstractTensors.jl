@@ -10,6 +10,8 @@ module SymbolicTensors
 #   metrics.jl          — @def_metric
 #   abstractTensor.jl   — KroneckerDelta, print_as interface, shared validation
 #   tensorComponents.jl — TensorComponent, getindex, display
+#   scalar.jl           — ScalarLike, scalar_add/mul, is_scalar_zero
+#   tensorExpr.jl       — TensorTerm, TensorSum, tensor algebra (+, *)
 #   frames.jl           — Basis (type :coordinate|:frame), BasisElement,
 #                         BasisExpansion, ExpansionStyle (Coordinate|Frame),
 #                         basis_expansion(T[, style]) — canonical indices only
@@ -23,6 +25,8 @@ include("tensors.jl")
 include("metrics.jl")
 include("abstractTensor.jl")
 include("tensorComponents.jl")
+include("scalar.jl")
+include("tensorExpr.jl")
 include("frames.jl")
 include("show.jl")
 

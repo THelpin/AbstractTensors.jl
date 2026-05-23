@@ -23,8 +23,8 @@
 #   - Per slot (with metric): skipped — any up/down on T.vbundle is allowed.
 #
 # The struct is lazy and inert: no contraction, no symmetry reduction
-# happens at construction time. Algebra (*,+) and contraction are
-# implemented in future files (tensorAlgebra.jl, contractions.jl).
+# happens at construction time. Algebra (+, *) is in tensorExpr.jl;
+# contraction is planned for contractions.jl.
 #
 # Depends on: indices.jl, manifolds.jl, permutations.jl, tensors.jl, metrics.jl
 # =========================================

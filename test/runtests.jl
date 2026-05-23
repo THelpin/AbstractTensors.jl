@@ -1,8 +1,11 @@
 using SymbolicTensors
 using SymbolicTensors: contractable, register_coordinate_index!, register_frame_index!,
     unregister_index!, index_home_vbundle, validate_indices, validate_contraction,
-    is_dual_vbundles, show_registry, _BOUND_BASIS_SYMBOLS, FrameIndex
+    is_dual_vbundles, show_registry, _BOUND_BASIS_SYMBOLS, FrameIndex,
+    TensorTerm, TensorSum, term, coeff_of, body_of, terms_of, is_zero,
+    scalar_add, scalar_mul, is_scalar_zero
 using Test
+using Symbolics
 
 # =========================================
 # Helper: reset module-level registries between test sets that need
@@ -1365,6 +1368,95 @@ end
         @test KD_T isa Tensor
         @test KD_T isa AbstractTensor
         @test print_as(KD_T) == "KD_T"
+    end
+
+
+    @testset "TensorTerm and TensorSum" begin
+        _clear_all_registries!()
+        @def_manifold TX_M 4 [tx_a, tx_b, tx_c, tx_d] [TXM_B1, TXM_B2, TXM_B3, TXM_B4]
+        @def_metric tx_g tangentTX_M
+        @def_tensor TX_T [cotangentTX_M, cotangentTX_M]
+
+        gab = TX_T[tx_a, -tx_b]
+        gab2 = TX_T[tx_c, -tx_d]
+
+        # 1. term construction
+        t1 = term(gab)
+        @test t1 isa TensorTerm
+        @test coeff_of(t1) == 1
+        @test body_of(t1) == gab
+
+        # 2. merge same body
+        s = TensorTerm(3, gab) + TensorTerm(2, gab)
+        @test s isa TensorSum
+        @test length(terms_of(s)) == 1
+        @test coeff_of(terms_of(s)[1]) == 5
+
+        # 3. mismatch bodies
+        s2 = TensorTerm(1, gab) + TensorTerm(1, gab2)
+        @test length(terms_of(s2)) == 2
+
+        # 4. sugar and type-stable +
+        s3 = 3 * gab + 2 * gab
+        @test s3 isa TensorSum
+        @test typeof(s3) <: TensorSum
+        @test length(terms_of(s3)) == 1
+        @test coeff_of(terms_of(s3)[1]) == 5
+
+        # 5. full cancellation → empty TensorSum, not scalar 0
+        z = TensorTerm(1, gab) + TensorTerm(-1, gab)
+        @test z isa TensorSum
+        @test is_zero(z)
+        @test z !== 0
+        @test TensorSum([]) !== 0
+
+        # 6. + never returns Int 0
+        @test !(typeof(z) <: Integer)
+
+        # 7. unary minus and typeof +
+        @test -t1 isa TensorTerm
+        @test coeff_of(-t1) == -1
+        @test typeof(TensorTerm(1, gab) + TensorTerm(1, gab2)) <: TensorSum
+
+        # 8. structural distributivity
+        s4 = TensorSum([TensorTerm(1, gab), TensorTerm(1, gab2)])
+        d = 2 * s4
+        @test length(terms_of(d)) == 2
+        @test all(coeff_of(t) == 2 for t in terms_of(d))
+
+        # 9. promote fallback
+        @test scalar_add(3, 4.5) == 7.5
+
+        # 10. Symbol coeffs (homogeneous Symbol)
+        @test scalar_mul(2, 3) == 6
+        @test !is_scalar_zero(:n)
+
+        # 11. show does not throw
+        @test (repr(MIME"text/plain"(), s3); true)
+        @test (repr(MIME"text/latex"(), s3); true)
+        @test (repr(MIME"text/html"(), s3); true)
+
+        # 12. block TensorTerm * TensorTerm
+        @test_throws ArgumentError t1 * t1
+
+        # 13. scalar + tensor error
+        @test_throws ArgumentError 1 + t1
+        @test_throws ArgumentError t1 + 1
+    end
+
+
+    @testset "Symbolics extension" begin
+        _clear_all_registries!()
+        @def_manifold SY_M 4 [sy_a, sy_b, sy_c, sy_d] [SYM_B1, SYM_B2, SYM_B3, SYM_B4]
+        @def_metric sy_g tangentSY_M
+        @def_tensor SY_T [cotangentSY_M, cotangentSY_M]
+
+        @variables x y
+        gab = SY_T[sy_a, -sy_b]
+        expr = TensorTerm(3x, gab) + TensorTerm(2y, gab)
+        @test expr isa TensorSum
+        @test length(terms_of(expr)) == 1
+        @test is_scalar_like(terms_of(expr)[1].coeff)
     end
 
 end # @testset "SymbolicTensors.jl"
