@@ -852,10 +852,11 @@ end
         @test hash(Basis(:ccf_BA_M, :cotangentBA_M, :coordinate, "dx")) ==
               hash(Basis(:ccf_BA_M, :cotangentBA_M, :coordinate, "dx"))
 
-        # show does not throw; compact display without leading colon on labels
-        @test repr(tb_basis) == "∂"
+        # MIME plain show: compact labels (repr(x) stays structural per display policy)
+        @test repr("text/plain", tb_basis) == "∂"
         @test (cf_BA_M, ccf_BA_M, mf_BA_M, mcf_BA_M) == (tb_basis, ctb_basis, mf_BA_M, mcf_BA_M)
-        @test repr((cf_BA_M, ccf_BA_M)) == "(∂, dx)"
+        @test repr("text/plain", cf_BA_M) == "∂"
+        @test repr("text/plain", ccf_BA_M) == "dx"
     end
 
 
