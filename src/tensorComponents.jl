@@ -1,7 +1,7 @@
 # =========================================
 # tensorComponents.jl — SymbolicTensors.jl
 #
-# A TensorComponent is a Tensor (schema) applied to a specific list of
+# A TensorComponent is an AbstractTensor (schema) applied to a specific list of
 # AbstractIndex objects. It is the REPL/notebook object you interact with:
 #
 #   F[down(a1), down(a2)]   — explicit construction
@@ -63,11 +63,11 @@ symmetry reduction is performed at construction time.
 
 ### Fields
 
-- `tensor`  : the [`Tensor`](@ref) this expression refers to
+- `tensor`  : the [`AbstractTensor`](@ref) this expression refers to
 - `indices` : the concrete index list for this occurrence, one per slot
 """
 struct TensorComponent
-    tensor::Tensor
+    tensor::AbstractTensor
     indices::Vector{AbstractIndex}
 end
 
@@ -210,7 +210,7 @@ end
 # 4.  Accessors
 # =========================================
 
-"""Return the [`Tensor`](@ref) schema of a `TensorComponent`."""
+"""Return the [`AbstractTensor`](@ref) schema of a `TensorComponent`."""
 tensor_of(e::TensorComponent)  = e.tensor
 
 """Return the concrete index list of a `TensorComponent`."""
@@ -226,11 +226,24 @@ rank_of(e::TensorComponent) = length(e.indices)
 """
     canonical_slots(e::TensorComponent) -> Vector{Symbol}
 
-Return the canonical slot vbundles from the underlying [`Tensor`](@ref) schema.
-These record the index placement declared at `@def_tensor` time and are used
-by `raise_index` / `lower_index` (future), not for construction validation.
+Return the canonical slot vbundles for this component.
+
+For a registered [`Tensor`](@ref), these are `tensor.slots` from `@def_tensor`.
+For [`KroneckerDelta`](@ref), `[idx_up.vbundle, idx_down.vbundle]` from the
+two indices (contravariant then covariant).
 """
-canonical_slots(e::TensorComponent) = e.tensor.slots
+function canonical_slots(e::TensorComponent)
+    T = e.tensor
+    if T isa Tensor
+        return T.slots
+    elseif T isa KroneckerDelta
+        length(e.indices) == 2 ||
+            error("canonical_slots: KroneckerDelta component requires 2 indices.")
+        return Symbol[e.indices[1].vbundle, e.indices[2].vbundle]
+    else
+        error("canonical_slots: unsupported tensor type $(typeof(T)).")
+    end
+end
 
 """
     variance_matches_canonical(e::TensorComponent) -> Bool
@@ -240,7 +253,8 @@ declared in `e.tensor.slots`. Useful for diagnostics and for triggering
 automatic index raising/lowering in algebraic simplification.
 """
 function variance_matches_canonical(e::TensorComponent)
-    for (idx, slot_vb) in zip(e.indices, e.tensor.slots)
+    slots = canonical_slots(e)
+    for (idx, slot_vb) in zip(e.indices, slots)
         idx.vbundle == slot_vb || return false
     end
     return true
@@ -337,7 +351,7 @@ function _format_latex(e::TensorComponent)
     end
 
     runs = _group_index_runs(e.indices)
-    buf  = string(e.tensor.print_as)
+    buf  = print_as(e.tensor)
     for (is_cov, syms) in runs
         body = join(latex_sym(s) * " " for s in syms) |> rstrip
         buf *= is_cov ? "_{$body}" : "^{$body}"
@@ -354,7 +368,7 @@ and contravariant indices in `<sup>` tags, with no additional styling.
 """
 function _format_html(e::TensorComponent)
     runs = _group_index_runs(e.indices)
-    buf  = string(e.tensor.print_as)
+    buf  = print_as(e.tensor)
     for (is_cov, syms) in runs
         tag   = is_cov ? "sub" : "sup"
         inner = join(string.(syms), " ")
@@ -382,7 +396,7 @@ function Base.show(io::IO, ::MIME"text/plain", e::TensorComponent)
     idx_strs = map(e.indices) do idx
         is_down(idx) ? "-$(idx.symbol)" : "$(idx.symbol)"
     end
-    print(io, "$(e.tensor.print_as)[$(join(idx_strs, ", "))]")
+    print(io, "$(print_as(e.tensor))[$(join(idx_strs, ", "))]")
 end
  
 """

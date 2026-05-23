@@ -14,3 +14,14 @@ for parametric/general-rank calculations where the dimension is not
 fixed at definition time.
 """
 const Dim = Union{Int, Symbol}
+
+"""
+    AbstractTensor
+
+Supertype for tensor-like objects in SymbolicTensors.jl.
+
+Concrete subtypes are defined in later includes (e.g. [`Tensor`](@ref),
+[`KroneckerDelta`](@ref)). Subtypes must implement
+[`print_as`](@ref `(SymbolicTensors.print_as)(::AbstractTensor)`).
+"""
+abstract type AbstractTensor end

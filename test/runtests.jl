@@ -1333,4 +1333,38 @@ end
         @test variance_matches_canonical(comp2)
     end
 
+
+    @testset "KroneckerDelta and AbstractTensor" begin
+        _clear_all_registries!()
+        @def_manifold KD_M 4 [kd_a1, kd_a2, kd_a3, kd_a4] [KDM_B1, KDM_B2, KDM_B3, KDM_B4]
+
+        @test kronecker_delta isa KroneckerDelta
+        @test kronecker_delta isa AbstractTensor
+        @test print_as(kronecker_delta) == "δ"
+        @test is_abstract_tensor(kronecker_delta)
+        @test is_kronecker_delta(kronecker_delta)
+
+        comp = kronecker_delta[kd_a1, -kd_a2]
+        @test comp isa TensorComponent
+        @test tensor_of(comp) === kronecker_delta
+        @test comp.indices[1].vbundle == :tangentKD_M
+        @test comp.indices[2].vbundle == :cotangentKD_M
+        @test canonical_slots(comp) == [:tangentKD_M, :cotangentKD_M]
+        @test variance_matches_canonical(comp)
+        @test print_as(comp.tensor) == "δ"
+
+        @test_throws ErrorException kronecker_delta[-kd_a1, kd_a2]
+        @test_throws ErrorException kronecker_delta[kd_a1, -KDM_B1]
+
+        @def_vbundle KD_E KD_M 2 [KD_B1, KD_B2]
+        comp_e = kronecker_delta[KD_B1, -KD_B2]
+        @test comp_e.indices[1].vbundle == :KD_E
+        @test canonical_slots(comp_e) == [:KD_E, :dualKD_E]
+
+        @def_tensor KD_T [cotangentKD_M, cotangentKD_M]
+        @test KD_T isa Tensor
+        @test KD_T isa AbstractTensor
+        @test print_as(KD_T) == "KD_T"
+    end
+
 end # @testset "SymbolicTensors.jl"

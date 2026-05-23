@@ -78,7 +78,7 @@ All slots must derive from the same vbundle of reference. For slot `vb`:
 This invariant is enforced by [`@def_tensor`](@ref) and is accessible via
 the derived property `T.vbundle`.
 """
-struct Tensor
+struct Tensor <: AbstractTensor
     manifold::Symbol
     slots::Vector{Symbol}
     symmetries::Vector{SlotSymmetry}

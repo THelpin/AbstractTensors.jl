@@ -6,9 +6,10 @@ module SymbolicTensors
 #   vbundles.jl         — @def_vbundle (registers BasisIndex)
 #   permutations.jl     — SignedPerm, SlotSymmetry, canonical_rep
 #                         (also defines isless for AbstractIndex, needs _VBUNDLES)
-#   tensors.jl          — Tensor, @def_tensor (needs all of the above)
+#   tensors.jl          — Tensor <: AbstractTensor, @def_tensor
 #   metrics.jl          — @def_metric
-#   tensorComponents.jl — TensorComponent, getindex on Tensor, display
+#   abstractTensor.jl   — KroneckerDelta, print_as interface, shared validation
+#   tensorComponents.jl — TensorComponent, getindex, display
 #   frames.jl           — Basis (type :coordinate|:frame), BasisElement,
 #                         BasisExpansion, ExpansionStyle (Coordinate|Frame),
 #                         basis_expansion(T[, style]) — canonical indices only
@@ -20,6 +21,7 @@ include("vbundles.jl")
 include("permutations.jl")
 include("tensors.jl")
 include("metrics.jl")
+include("abstractTensor.jl")
 include("tensorComponents.jl")
 include("frames.jl")
 include("show.jl")
