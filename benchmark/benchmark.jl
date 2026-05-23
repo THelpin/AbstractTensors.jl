@@ -27,6 +27,7 @@ println("=========================================")
 println("\n--- Benchmark 1: Distributivity (FOIL) ---")
 b1 = @benchmark ($expr1 * $expr2) * $expr3
 display(b1)
+display((expr1 * expr2) * expr3)
 
 # ---------------------------------------------------------
 # Benchmark 2: commutative merge (1000 shuffled 4-factor products)
