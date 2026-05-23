@@ -254,7 +254,7 @@ basis_expansion(T, Frame)       # per slot: :frame only
 ```
 
 Expansion builds canonical components from the tensor schema at `@def_tensor` time.
-There is no `basis_expansion(::TensorExpression)` or `basis_expansion(::Tensor, ::Basis)`.
+There is no `basis_expansion(::TensorComponent)` or `basis_expansion(::Tensor, ::Basis)`.
 
 ---
 

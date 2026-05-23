@@ -7,14 +7,14 @@
 #   - symmetries=[symmetric(2)] (imposed automatically)
 #   - registration in both _TENSORS and _METRICS
 #
-# A manifold can have zero, one, or multiple metrics. Individual tensors
-# store a reference to whichever metric they were assigned (or nothing).
+# A vbundle of reference can have zero, one, or multiple metrics. Individual
+# tensors store a reference to whichever metric they were assigned (or nothing).
 #
 # xTensor analogs:
-#   DefMetric[g[-i,-j], M]  →  @def_metric g M
-#   $Metrics                →  _METRICS
-#   MetricQ[g]              →  is_metric(g)
-#   MetricsOfManifold[M]    →  metrics_on_manifold(:M)
+#   DefMetric[g[-i,-j], tangentM]  →  @def_metric g tangentM
+#   $Metrics                       →  _METRICS
+#   MetricQ[g]                     →  is_metric(g)
+#   MetricsOfManifold[M]             →  metrics_of_manifold(M)
 # =========================================
 
 # Depends on: indices.jl, manifolds.jl, permutations.jl, tensors.jl
@@ -26,9 +26,9 @@
 """
     _METRICS :: Dict{Symbol, Symbol}
 
-Maps each registered metric name to the name of its base manifold.
+Maps each registered metric name to its vbundle of reference.
 
-    _METRICS[:g]  →  :M
+    _METRICS[:g]  →  :tangentM
 
 Populated by [`@def_metric`](@ref), cleared by [`@undef_metric`](@ref)
 (or [`@undef_tensor`](@ref) when the tensor being removed is a metric).
@@ -43,48 +43,61 @@ const _METRICS = Dict{Symbol, Symbol}()
 # =========================================
 
 """
-    @def_metric name M
+    @def_metric name vbundle
 
-Define a new metric tensor on manifold `M`, bind it to `name` in the
-caller's scope, and register it in both [`_TENSORS`](@ref) and
+Define a new metric tensor for vbundle of reference `vbundle`, bind it to `name`
+in the caller's scope, and register it in both [`_TENSORS`](@ref) and
 [`_METRICS`](@ref).
+
+`vbundle` must be a registered [`VBundle`](@ref) with `isref == true`
+(the bundle named in [`@def_manifold`](@ref) or [`@def_vbundle`](@ref)).
 
 `@def_metric` is a specialised shortcut (not a call to [`@def_tensor`](@ref))
 that always builds a rank-2 fully covariant symmetric metric:
 
-- Slots: `[cotangentM, cotangentM]` from `M.cotangent_bundle` (both covariant).
+- Slots: `[dual(vbundle), dual(vbundle)]` (both covariant).
 - `symmetries=[symmetric(2)]` — fixed, no user override.
 - `print_as` set to `string(name)`; `metric` set to `name` (self-referential).
+- `_METRICS[name] = vbundle` (vbundle of reference).
 - No keyword arguments.
 
 At **expression** time you still write `g[-a1, -a2]` using coordinate indices;
-only **definition** uses `@def_metric g M`.
+only **definition** uses `@def_metric g tangentM`.
 
 # Examples
 ~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 
-@def_metric g M    # Riemannian metric on M
-@def_metric η M    # second metric on the same manifold
+@def_metric g tangentM    # Riemannian metric on M
+@def_metric η tangentM    # second metric, same vbundle of reference
 ~~~
 """
-macro def_metric(name, manifold_expr)
+macro def_metric(name, vbundle_expr)
     name isa Symbol ||
         error("@def_metric: first argument must be a symbol, got: $name")
-    manifold_expr isa Symbol ||
-        error("@def_metric: second argument must be a manifold symbol, got: $manifold_expr")
+    vbundle_expr isa Symbol ||
+        error("@def_metric: second argument must be a vbundle symbol, got: $vbundle_expr")
 
-    manifold_sym = QuoteNode(manifold_expr)
+    vbundle_sym  = QuoteNode(vbundle_expr)
     name_sym     = QuoteNode(name)
     print_as_str = string(name)
 
     quote
-        # ── Validate manifold ─────────────────────────────────────────
-        haskey(_MANIFOLDS, $(manifold_sym)) ||
-            error("@def_metric: manifold $($(manifold_sym)) is not registered")
+        haskey(_VBUNDLES, $(vbundle_sym)) ||
+            error(
+                "@def_metric: vbundle $($(vbundle_sym)) is not registered. " *
+                "Call @def_manifold or @def_vbundle first."
+            )
 
-        local _M = _MANIFOLDS[$(manifold_sym)]
-        local _cotangent = _M.cotangent_bundle
+        local _vb = _VBUNDLES[$(vbundle_sym)]
+        getfield(_vb, :isref) ||
+            error(
+                "@def_metric: vbundle $($(vbundle_sym)) is not a vbundle of reference " *
+                "(isref must be true). Pass the primal bundle, e.g. tangentM not cotangentM."
+            )
+
+        local _manifold_sym = getfield(_vb, :manifold)
+        local _covariant = getfield(_vb, :dual)
 
         # ── Guard: warn if redefining ─────────────────────────────────
         if haskey(_TENSORS, $(name_sym))
@@ -95,27 +108,28 @@ macro def_metric(name, manifold_expr)
         end
 
         # ── Build metric tensor ────────────────────────────────────────
-        local _slots = [_cotangent, _cotangent]
-
-        # Metrics are symmetric (0,2) tensors
+        local _slots = [_covariant, _covariant]
         local _syms = [symmetric(2)]
 
         local _T = Tensor(
-            $(manifold_sym),    # manifold
-            _slots,             # slots = [cotangentM, cotangentM]
-            _syms,              # symmetries = [symmetric(2)]
-            false,              # is_traceless
-            Any[],              # known_traces
-            $(QuoteNode(print_as_str)),  # print_as
-            $(name_sym)                 # metric (self-referential)
+            _manifold_sym,
+            _slots,
+            _syms,
+            false,
+            Any[],
+            $(QuoteNode(print_as_str)),
+            $(name_sym)
         )
 
         # ── Register ─────────────────────────────────────────────────
         _TENSORS[$(name_sym)] = _T
-        _METRICS[$(name_sym)] = $(manifold_sym)
+        _METRICS[$(name_sym)] = $(vbundle_sym)
         $(esc(name)) = _T
 
-        println("Defined metric $($(name_sym)) on manifold $($(manifold_sym))")
+        println(
+            "Defined metric $($(name_sym)) on vbundle of reference $($(vbundle_sym)) " *
+            "(manifold :$(_manifold_sym))"
+        )
         nothing
     end
 end
@@ -156,18 +170,27 @@ end
 # =========================================
 
 """
-    metrics_of_manifold(m::Symbol) -> Vector{Symbol}
+    metrics_of_vbundle(vb::Symbol) -> Vector{Symbol}
 
-Return the names of all metrics registered on manifold `m`, in insertion order.
-Returns an empty vector if no metrics have been defined on `m`.
+Return metric names registered on vbundle of reference `vb`, sorted by name.
 
-Used internally by `@def_tensor` to resolve which metric to assign when the
-`metric=` keyword is omitted.
+Used internally by [`@def_tensor`](@ref) when `metric=` is omitted.
 """
-function metrics_of_manifold(m::Symbol)
-    # Preserve a deterministic order by sorting names.
-    # (Dict iteration order is not guaranteed in Julia.)
-    sort([k for (k, v) in _METRICS if v == m])
+function metrics_of_vbundle(vb::Symbol)
+    sort([k for (k, v) in _METRICS if v == vb])
+end
+
+"""
+    metrics_of_manifold(M::Manifold) -> Vector{Symbol}
+
+Return the names of all metrics whose vbundle of reference lies over manifold
+`M`, sorted by name. Returns an empty vector if none are defined.
+"""
+function metrics_of_manifold(M::Manifold)
+    sort([
+        k for (k, vb_ref) in _METRICS
+        if haskey(_VBUNDLES, vb_ref) && _VBUNDLES[vb_ref].manifold == M.name
+    ])
 end
 
 """
@@ -178,7 +201,6 @@ as a metric in [`_METRICS`](@ref).
 """
 function is_metric(x)
     x isa Tensor || return false
-    # Find the tensor's name by looking it up in _TENSORS.
     for (sym, t) in _TENSORS
         t === x && return haskey(_METRICS, sym)
     end
@@ -188,9 +210,9 @@ end
 """
     list_metrics() -> Vector{Symbol}
 
-Return the names of all currently registered metrics (across all manifolds).
+Return the names of all currently registered metrics (across all vbundles).
 
-    @def_metric g M
+    @def_metric g tangentM
     list_metrics()   # [:g]
 """
 list_metrics() = collect(keys(_METRICS))
@@ -203,8 +225,16 @@ Print a human-readable summary of metric `g`.
 function metric_info(g::Tensor)
     is_metric(g) ||
         @warn "metric_info: tensor $(g.print_as) is not registered as a metric."
+    vb_ref = ""
+    for (sym, t) in _TENSORS
+        if t === g && haskey(_METRICS, sym)
+            vb_ref = string(_METRICS[sym])
+            break
+        end
+    end
     println("Metric:    $(g.print_as)")
     println("  Manifold: $(g.manifold)")
+    vb_ref != "" && println("  Vbundle of reference: $vb_ref")
     println("  Slots:    [$(join(g.slots, ", "))]")
     println("  Symmetry: $(g.symmetries)")
 end
@@ -214,11 +244,6 @@ end
 # 4.  show methods
 # =========================================
 
-# Metrics use the same Tensor show methods defined in tensors.jl.
-# The specialised `show` below is for the REPL one-line representation when
-# the user has a reference to a metric and types its name.
-# We detect "is a metric" by checking _METRICS at display time.
-
 function _metric_show_line(io::IO, g::Tensor)
     slot_chars = map(g.slots) do vb
         haskey(_VBUNDLES, vb) ? (_VBUNDLES[vb].isref ? "↑" : "↓") : "?"
@@ -227,10 +252,6 @@ function _metric_show_line(io::IO, g::Tensor)
         "Metric $(g.print_as)[$(join(slot_chars, ""))] on $(g.manifold)"
     )
 end
-
-# We cannot override Base.show(io, ::Tensor) only for metrics without a
-# separate type. Instead we export metric_info and let the standard Tensor
-# show handle display. If you want a custom REPL line, use metric_info(g).
 
 
 # =========================================
@@ -257,4 +278,5 @@ end
 
 export _METRICS
 export @def_metric, @undef_metric
-export is_metric, list_metrics, metric_info, show_metrics, metrics_of_manifold
+export is_metric, list_metrics, metric_info, show_metrics
+export metrics_of_manifold, metrics_of_vbundle

@@ -284,9 +284,10 @@ mathematical object with no ambiguity.
 - `print_as`    : display label string. Defaults to `string(name)`.
                   Example: `print_as="R"` or `print_as=:R` (symbol sugar).
 - `metric`      : name of the metric tensor to associate with this tensor.
-                  Omitting this keyword triggers automatic resolution:
-                  - one metric on manifold → assigned silently
-                  - multiple metrics → `@warn`, first defined is assigned
+                  Omitting this keyword triggers automatic resolution on the
+                  tensor's vbundle of reference:
+                  - one metric on that vbundle → assigned silently
+                  - multiple metrics → `@warn`, first sorted name is assigned
                   - no metric → `@warn`, `nothing` assigned (no raising/lowering)
 
 Binds `name` to a [`Tensor`](@ref) instance in the caller's scope and
@@ -296,7 +297,7 @@ registers it in [`_TENSORS`](@ref).
 
 ~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-@def_metric g M
+@def_metric g tangentM
 
 @def_tensor T  [cotangentM, cotangentM]
 @def_tensor F  [cotangentM, cotangentM] symmetries=[antisymmetric(2)]
@@ -436,17 +437,17 @@ macro def_tensor(tensor_name, vbundle_list, kwargs...)
                     "@def_tensor: metric= :$(_given_sym) is not registered. " *
                     "Call @def_metric first."
                 )
-            _METRICS[_given_sym] == _manifold_sym ||
+            _METRICS[_given_sym] == _vbundle_of_reference ||
                 error(
-                    "@def_tensor: metric :$(_given_sym) belongs to manifold " *
+                    "@def_tensor: metric :$(_given_sym) is on vbundle of reference " *
                     ":$(_METRICS[_given_sym]), but tensor :$($(tensor_sym)) " *
-                    "is on :$(_manifold_sym)."
+                    "has vbundle of reference :$(_vbundle_of_reference)."
                 )
             _metric_sym = _given_sym
         else
-            local _known = metrics_of_manifold(_manifold_sym)
+            local _known = metrics_of_vbundle(_vbundle_of_reference)
             if isempty(_known)
-                @warn "No metric is defined on manifold :$(_manifold_sym). " *
+                @warn "No metric is defined on vbundle of reference :$(_vbundle_of_reference). " *
                       "Tensor :$($(tensor_sym)) has no metric assigned; " *
                       "indices cannot be raised or lowered."
                 _metric_sym = nothing
@@ -454,7 +455,7 @@ macro def_tensor(tensor_name, vbundle_list, kwargs...)
                 _metric_sym = _known[1]
             else
                 @warn "Multiple metrics $(tuple(_known...)) are defined on " *
-                      "manifold :$(_manifold_sym). Assigning first " *
+                      "vbundle of reference :$(_vbundle_of_reference). Assigning first " *
                       "(:$(_known[1])) to tensor :$($(tensor_sym)). " *
                       "Use metric=<name> to be explicit."
                 _metric_sym = _known[1]

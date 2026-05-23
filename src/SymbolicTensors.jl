@@ -8,7 +8,7 @@ module SymbolicTensors
 #                         (also defines isless for AbstractIndex, needs _VBUNDLES)
 #   tensors.jl          — Tensor, @def_tensor (needs all of the above)
 #   metrics.jl          — @def_metric
-#   tensorExpressions.jl — TensorExpression, show methods
+#   tensorComponents.jl — TensorComponent, getindex on Tensor, display
 #   frames.jl           — Basis (type :coordinate|:frame), BasisElement,
 #                         BasisExpansion, ExpansionStyle (Coordinate|Frame),
 #                         basis_expansion(T[, style]) — canonical indices only
@@ -20,7 +20,7 @@ include("vbundles.jl")
 include("permutations.jl")
 include("tensors.jl")
 include("metrics.jl")
-include("tensorExpressions.jl")
+include("tensorComponents.jl")
 include("frames.jl")
 include("show.jl")
 

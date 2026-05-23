@@ -88,7 +88,7 @@ a1        # CoordinateIndex(:a1, :tangentM)    — contravariant
 F[-a1, -a2]   # bracket indexing uses AbstractIndex values only
 
 # 4. Define a metric, then tensors with varying slot structures and symmetries
-@def_metric g M                                       # rank-2 covariant symmetric metric
+@def_metric g tangentM                                # rank-2 covariant symmetric metric
 @def_tensor T [cotangentM, cotangentM]                # rank-2 covariant, no symmetry
 @def_tensor A [cotangentM, cotangentM] symmetries=[antisymmetric(2)]  # 2-form
 

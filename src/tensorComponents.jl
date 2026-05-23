@@ -1,7 +1,7 @@
 # =========================================
-# tensorExpressions.jl — SymbolicTensors.jl
+# tensorComponents.jl — SymbolicTensors.jl
 #
-# A TensorExpression is a Tensor (schema) applied to a specific list of
+# A TensorComponent is a Tensor (schema) applied to a specific list of
 # AbstractIndex objects. It is the REPL/notebook object you interact with:
 #
 #   F[down(a1), down(a2)]   — explicit construction
@@ -11,13 +11,13 @@
 #
 # Design principle: slot variance (stored on Tensor.slots) records the
 # *canonical* index placement declared at @def_tensor time. It is NOT
-# enforced at TensorExpression construction. Raising and lowering indices
+# enforced at TensorComponent construction. Raising and lowering indices
 # is a separate algebraic operation (future raise_index / lower_index).
 #
 # What IS validated at construction:
 #   - Arity: number of indices must equal T.rank.
-#   - Manifold membership: each index must belong to the correct manifold.
-#     Concretely, index_home_vbundle(idx.symbol) must equal T's tangent bundle.
+#   - Manifold membership: each index's vbundle must lie over T.manifold
+#     (custom vbundles such as E are allowed, not only tangentM).
 #
 # What is NOT validated:
 #   - Variance (up/down) of each index against the slot declaration.
@@ -32,11 +32,11 @@
 
 
 # =========================================
-# 1.  TensorExpression struct
+# 1.  TensorComponent struct
 # =========================================
 
 """
-    TensorExpression
+    TensorComponent
 
 A [`Tensor`](@ref) (definition-level schema) applied to a concrete list of
 [`AbstractIndex`](@ref) objects, representing one occurrence in an algebraic
@@ -51,7 +51,7 @@ Constructed via `getindex` on a [`Tensor`](@ref):
 
 **Validation at construction time:**
 - `length(idxs) == T.rank`
-- *Manifold membership*: each index's home tangent bundle must match `T.manifold`
+- *Manifold membership*: each index's `vbundle` must belong to `T.manifold`
 
 **Not validated:**
 - *Variance* (up vs down) against `T.slots`. The canonical slot structure
@@ -65,7 +65,7 @@ symmetry reduction is performed at construction time.
 - `tensor`  : the [`Tensor`](@ref) this expression refers to
 - `indices` : the concrete index list for this occurrence, one per slot
 """
-struct TensorExpression
+struct TensorComponent
     tensor::Tensor
     indices::Vector{AbstractIndex}
 end
@@ -85,13 +85,13 @@ function _parse_index_arg(arg)::AbstractIndex
     elseif arg isa Symbol
         is_index_registered(arg) ||
             error(
-                "TensorExpression: index :$arg is not registered. " *
+                "TensorComponent: index :$arg is not registered. " *
                 "Call @def_manifold or @add_indices first."
             )
         return up(arg)
     else
         error(
-            "TensorExpression: cannot interpret slot argument $(repr(arg)) " *
+            "TensorComponent: cannot interpret slot argument $(repr(arg)) " *
             "of type $(typeof(arg)). " *
             "Use -a1 (covariant) or a1 (contravariant) index values."
         )
@@ -100,13 +100,13 @@ end
 
 
 # ======================================================
-# 3.  Base.getindex — T[a1, -a2, ...] → TensorExpression
+# 3.  Base.getindex — T[a1, -a2, ...] → TensorComponent
 # ======================================================
 
 """
-    Base.getindex(T::Tensor, idxs...) -> TensorExpression
+    Base.getindex(T::Tensor, idxs...) -> TensorComponent
 
-Construct a [`TensorExpression`](@ref) by applying `T` to the given indices.
+Construct a [`TensorComponent`](@ref) by applying `T` to the given indices.
 
 Accepted argument types per slot:
 - [`AbstractIndex`](@ref)       — used directly (contravariant or covariant)
@@ -115,7 +115,7 @@ Accepted argument types per slot:
 
 **Validated:**
 1. **Arity** — `length(idxs) == T.rank`
-2. **Manifold membership** — each index's home tangent bundle matches `T.manifold`
+2. **Manifold membership** — each index's vbundle lies over `T.manifold`
 
 **Not validated:**
 - Variance against `T.slots`. Any up/down combination is accepted.
@@ -124,7 +124,7 @@ Accepted argument types per slot:
 # Examples
 ~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
-@def_metric g M
+@def_metric g tangentM
 @def_tensor F[-a1, -a2] M symmetries=[antisymmetric(2)]
 
 g[-a1, -a2]              # covariant metric (canonical form)
@@ -133,6 +133,10 @@ g[a1, -a2]               # mixed — valid
 F[-a1, -a2]              # covariant F (canonical form)
 F[a1, a2]                # contravariant F — valid
 F[-a1, -a2, -a1]         # error: rank mismatch
+
+@def_vbundle E M 4 [B1, B2, B3, B4]
+@def_tensor K [E, dualE]
+K[-B1, B2]               # valid: frame indices on custom bundle E
 ~~~
 """
 function Base.getindex(T::Tensor, idxs...)
@@ -140,7 +144,7 @@ function Base.getindex(T::Tensor, idxs...)
 
     n == T.rank ||
         error(
-            "TensorExpression: tensor $(T.print_as) has rank $(T.rank) " *
+            "TensorComponent: tensor $(T.print_as) has rank $(T.rank) " *
             "but $n index argument(s) were given."
         )
 
@@ -150,33 +154,37 @@ function Base.getindex(T::Tensor, idxs...)
         ti[i] = _parse_index_arg(idxs[i])
     end
 
-    # Step 2: retrieve manifold metadata for validation.
+    # Step 2: validate tensor manifold is registered.
     haskey(_MANIFOLDS, T.manifold) ||
         error(
-            "TensorExpression: tensor $(T.print_as) references " *
+            "TensorComponent: tensor $(T.print_as) references " *
             "unregistered manifold :$(T.manifold)."
         )
-    tb = _MANIFOLDS[T.manifold].tangent_bundle   # e.g. :tangentM
 
-    # Step 3: manifold membership validation only.
+    # Step 3: manifold membership — index vbundle must lie over T.manifold.
     # Variance is NOT checked — any up/down combination is valid.
     for i in 1:n
         idx = ti[i]
 
         is_index_registered(idx.symbol) ||
             error(
-                "TensorExpression: index :$(idx.symbol) is not registered."
+                "TensorComponent: index :$(idx.symbol) is not registered."
             )
 
-        home = index_home_vbundle(idx.symbol)
-        home == tb ||
+        haskey(_VBUNDLES, idx.vbundle) ||
             error(
-                "TensorExpression: index :$(idx.symbol) has home bundle " *
-                ":$home, expected :$tb (manifold $(T.manifold))."
+                "TensorComponent: index :$(idx.symbol) has unregistered " *
+                "vbundle :$(idx.vbundle)."
+            )
+        _VBUNDLES[idx.vbundle].manifold == T.manifold ||
+            error(
+                "TensorComponent: index :$(idx.symbol) is on manifold " *
+                ":$(_VBUNDLES[idx.vbundle].manifold), but tensor $(T.print_as) " *
+                "is on :$(T.manifold)."
             )
     end
 
-    TensorExpression(T, ti)
+    TensorComponent(T, ti)
 end
 
 
@@ -184,36 +192,36 @@ end
 # 4.  Accessors
 # =========================================
 
-"""Return the [`Tensor`](@ref) schema of a `TensorExpression`."""
-tensor_of(e::TensorExpression)  = e.tensor
+"""Return the [`Tensor`](@ref) schema of a `TensorComponent`."""
+tensor_of(e::TensorComponent)  = e.tensor
 
-"""Return the concrete index list of a `TensorExpression`."""
-indices_of_tensor(e::TensorExpression) = e.indices
+"""Return the concrete index list of a `TensorComponent`."""
+indices_of_tensor(e::TensorComponent) = e.indices
 
 """
-    rank_of(e::TensorExpression) -> Int
+    rank_of(e::TensorComponent) -> Int
 
 Number of slots of the expression. Dispatches alongside `rank_of(::Tensor)`.
 """
-rank_of(e::TensorExpression) = length(e.indices)
+rank_of(e::TensorComponent) = length(e.indices)
 
 """
-    canonical_slots(e::TensorExpression) -> Vector{Symbol}
+    canonical_slots(e::TensorComponent) -> Vector{Symbol}
 
 Return the canonical slot vbundles from the underlying [`Tensor`](@ref) schema.
 These record the index placement declared at `@def_tensor` time and are used
 by `raise_index` / `lower_index` (future), not for construction validation.
 """
-canonical_slots(e::TensorExpression) = e.tensor.slots
+canonical_slots(e::TensorComponent) = e.tensor.slots
 
 """
-    variance_matches_canonical(e::TensorExpression) -> Bool
+    variance_matches_canonical(e::TensorComponent) -> Bool
 
 Return `true` if every index in `e` matches the canonical slot variance
 declared in `e.tensor.slots`. Useful for diagnostics and for triggering
 automatic index raising/lowering in algebraic simplification.
 """
-function variance_matches_canonical(e::TensorExpression)
+function variance_matches_canonical(e::TensorComponent)
     for (idx, slot_vb) in zip(e.indices, e.tensor.slots)
         idx.vbundle == slot_vb || return false
     end
@@ -225,10 +233,10 @@ end
 # 5.  Equality and hashing
 # =========================================
 
-Base.:(==)(a::TensorExpression, b::TensorExpression) =
+Base.:(==)(a::TensorComponent, b::TensorComponent) =
     a.tensor === b.tensor && a.indices == b.indices
 
-Base.hash(e::TensorExpression, h::UInt) =
+Base.hash(e::TensorComponent, h::UInt) =
     hash((objectid(e.tensor), e.indices), h)
 
 
@@ -294,7 +302,7 @@ end
 # ==============================================
 
 """
-    _format_latex(e::TensorExpression) -> String
+    _format_latex(e::TensorComponent) -> String
 
 Produce a LaTeX math-mode string (without surrounding `\$`).
 
@@ -303,7 +311,7 @@ Examples:
     g[a1, a2]    → "g^{a_{1} a_{2}}"
     T[a1, -a2]   → "T^{a_{1}}_{a_{2}}"
 """
-function _format_latex(e::TensorExpression)
+function _format_latex(e::TensorComponent)
     function latex_sym(sym::Symbol)
         s = string(sym)
         m = match(r"^([^\d]*)(\d+)$", s)
@@ -320,13 +328,13 @@ function _format_latex(e::TensorExpression)
 end
 
 """
-    _format_html(e::TensorExpression) -> String
+    _format_html(e::TensorComponent) -> String
  
 Produce an HTML string for Jupyter / Pluto display.
 The tensor name is rendered as-is; covariant indices appear in `<sub>` tags
 and contravariant indices in `<sup>` tags, with no additional styling.
 """
-function _format_html(e::TensorExpression)
+function _format_html(e::TensorComponent)
     runs = _group_index_runs(e.indices)
     buf  = string(e.tensor.print_as)
     for (is_cov, syms) in runs
@@ -343,7 +351,7 @@ end
 # =========================================
  
 """
-    Base.show(io::IO, e::TensorExpression)
+    Base.show(io::IO, e::TensorComponent)
  
 Plain-text / REPL display. Renders as `name[±idx1, ±idx2, ...]` where
 covariant indices are prefixed with `-` and contravariant indices are bare.
@@ -352,7 +360,7 @@ covariant indices are prefixed with `-` and contravariant indices are bare.
     g[a1, a2]     →  g[a1, a2]
     T[a1, -a2]    →  T[a1, -a2]
 """
-function Base.show(io::IO, ::MIME"text/plain", e::TensorExpression)
+function Base.show(io::IO, ::MIME"text/plain", e::TensorComponent)
     idx_strs = map(e.indices) do idx
         is_down(idx) ? "-$(idx.symbol)" : "$(idx.symbol)"
     end
@@ -360,20 +368,20 @@ function Base.show(io::IO, ::MIME"text/plain", e::TensorExpression)
 end
  
 """
-    Base.show(io::IO, ::MIME"text/latex", e::TensorExpression)
+    Base.show(io::IO, ::MIME"text/latex", e::TensorComponent)
  
 LaTeX display for IJulia / Jupyter notebooks.
 """
-function Base.show(io::IO, ::MIME"text/latex", e::TensorExpression)
+function Base.show(io::IO, ::MIME"text/latex", e::TensorComponent)
     print(io, "\$", _format_latex(e), "\$")
 end
  
 """
-    Base.show(io::IO, ::MIME"text/html", e::TensorExpression)
+    Base.show(io::IO, ::MIME"text/html", e::TensorComponent)
  
 HTML display for Jupyter / Pluto notebooks.
 """
-function Base.show(io::IO, ::MIME"text/html", e::TensorExpression)
+function Base.show(io::IO, ::MIME"text/html", e::TensorComponent)
     print(io, _format_html(e))
 end
  
@@ -384,7 +392,7 @@ end
 # Exports
 # =========================================
 
-export TensorExpression
+export TensorComponent
 export tensor_of, indices_of_tensor, canonical_slots, variance_matches_canonical
-# rank_of: already exported from tensors.jl; the TensorExpression method
+# rank_of: already exported from tensors.jl; the TensorComponent method
 # is added here via multiple dispatch — no re-export needed.

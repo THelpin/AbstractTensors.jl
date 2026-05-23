@@ -25,7 +25,7 @@
 #   basis_expansion(T, Coordinate) → Per-slot: uses :coordinate if available, falls back to :frame
 #   basis_expansion(T, Frame)      → Per-slot: strictly uses :frame for all slots
 #
-# Depends on: indices.jl, manifolds.jl, tensorExpressions.jl
+# Depends on: indices.jl, manifolds.jl, tensorComponents.jl
 # =========================================
 
 # =========================================
@@ -105,7 +105,7 @@ end
 
 The formal basis expansion of a [`Tensor`](@ref) using canonical slot structures.
 
-The `component` field is a [`TensorExpression`](@ref) built from the
+The `component` field is a [`TensorComponent`](@ref) built from the
 tensor's canonical slot structure. The `basis_elements` give one
 [`BasisElement`](@ref) per slot.
 
@@ -117,11 +117,11 @@ Display rule: no `⊗` between `component` and the first basis element;
 
 ### Fields
 
-- `component`      : the [`TensorExpression`](@ref) giving the component part
+- `component`      : the [`TensorComponent`](@ref) giving the component part
 - `basis_elements` : one [`BasisElement`](@ref) per slot
 """
 struct BasisExpansion
-    component::TensorExpression
+    component::TensorComponent
     basis_elements::Vector{BasisElement}
 end
 
@@ -490,7 +490,7 @@ end
 # =========================================
 # 14. Canonical Indices & Component Generation
 # =========================================
-function _canonical_indices(T::Tensor, style::ExpansionStyle)::TensorExpression
+function _canonical_indices(T::Tensor, style::ExpansionStyle)::TensorComponent
     haskey(_MANIFOLDS, T.manifold) ||
         error("basis_expansion: tensor references unregistered manifold :$(T.manifold).")
     n = T.rank
@@ -524,7 +524,7 @@ function _canonical_indices(T::Tensor, style::ExpansionStyle)::TensorExpression
         push!(canonical_idxs, index_constructor(syms[count], slot_vb))
     end
 
-    TensorExpression(T, canonical_idxs)
+    TensorComponent(T, canonical_idxs)
 end
 
 function _basis_element_for_slot(
@@ -709,7 +709,7 @@ end
 """
 Base.show(io::IO, ::MIME"text/html", bx::BasisExpansion)
 HTML display using  /  tags.
-The component uses _format_html from tensorExpressions.jl.
+The component uses _format_html from tensorComponents.jl.
 """
 function Base.show(io::IO, ::MIME"text/html", bx::BasisExpansion)
     comp_html = _format_html(bx.component)
