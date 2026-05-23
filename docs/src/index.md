@@ -37,7 +37,7 @@ There are two concrete types:
 - [`BasisIndex`](@ref) — fibre basis labels on tangent/cotangent or custom vector bundles
 
 Whether an index is contravariant or covariant is determined entirely by
-which bundle it lives in. [`VBundle.isdual`](@ref VBundle) is the single
+which bundle it lives in. [`VBundle.isref`](@ref VBundle) is the single
 authoritative source; no naming convention is relied upon.
 
 **Index symbols.** `@def_manifold` binds coordinate symbols as contravariant
@@ -77,7 +77,7 @@ using SymbolicTensors
 # 2. Query manifold and bundle metadata
 M.dim              # 4
 M.tangent_bundle   # :tangentM
-tangentM.isdual    # false
+tangentM.isref    # true
 a1.vbundle         # :tangentM
 tangentM.coordinate_indices  # [CoordinateIndex(:a1, :tangentM), ...]
 tangentM.basis_indices       # [BasisIndex(:A1, :tangentM), ...]
@@ -94,7 +94,7 @@ F[-a1, -a2]   # bracket indexing uses AbstractIndex values only
 
 @def_tensor ε [cotangentM, cotangentM, cotangentM, cotangentM] symmetries=[antisymmetric(4)]
 @def_tensor R [cotangentM, cotangentM, cotangentM, tangentM] symmetries=[riemann_symmetry()]
-@def_tensor W [cotangentM, cotangentM, cotangentM, tangentM] symmetries=[riemann_symmetry()] traceless=true print_as=:Weyl
+@def_tensor W [cotangentM, cotangentM, cotangentM, tangentM] symmetries=[riemann_symmetry()] traceless=true print_as="Weyl"
 
 # Mixed (1,1) tensor
 @def_tensor Γ [tangentM, cotangentM]
@@ -105,7 +105,7 @@ T.manifold     # :M
 T.slots        # [:cotangentM, :cotangentM]
 T.symmetries     # NoSymmetry(n=2)
 T.is_traceless # false
-T.print_as     # :T
+T.print_as     # "T"
 tensor_info(R)
 
 # 6. Canonical form of an index list under a symmetry

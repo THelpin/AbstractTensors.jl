@@ -54,7 +54,7 @@ that always builds a rank-2 fully covariant symmetric metric:
 
 - Slots: `[cotangentM, cotangentM]` from `M.cotangent_bundle` (both covariant).
 - `symmetries=[symmetric(2)]` — fixed, no user override.
-- `print_as` and `metric` both set to `name` (self-referential).
+- `print_as` set to `string(name)`; `metric` set to `name` (self-referential).
 - No keyword arguments.
 
 At **expression** time you still write `g[-a1, -a2]` using coordinate indices;
@@ -75,7 +75,8 @@ macro def_metric(name, manifold_expr)
         error("@def_metric: second argument must be a manifold symbol, got: $manifold_expr")
 
     manifold_sym = QuoteNode(manifold_expr)
-    name_sym = QuoteNode(name)
+    name_sym     = QuoteNode(name)
+    print_as_str = string(name)
 
     quote
         # ── Validate manifold ─────────────────────────────────────────
@@ -105,8 +106,8 @@ macro def_metric(name, manifold_expr)
             _syms,              # symmetries = [symmetric(2)]
             false,              # is_traceless
             Any[],              # known_traces
-            $(name_sym),        # print_as
-            $(name_sym)         # metric (self-referential)
+            $(QuoteNode(print_as_str)),  # print_as
+            $(name_sym)                 # metric (self-referential)
         )
 
         # ── Register ─────────────────────────────────────────────────
@@ -220,7 +221,7 @@ end
 
 function _metric_show_line(io::IO, g::Tensor)
     slot_chars = map(g.slots) do vb
-        haskey(_VBUNDLES, vb) ? (_VBUNDLES[vb].isdual ? "↓" : "↑") : "?"
+        haskey(_VBUNDLES, vb) ? (_VBUNDLES[vb].isref ? "↑" : "↓") : "?"
     end
     print(io,
         "Metric $(g.print_as)[$(join(slot_chars, ""))] on $(g.manifold)"

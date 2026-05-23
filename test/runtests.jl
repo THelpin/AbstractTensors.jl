@@ -200,14 +200,14 @@ end
         # VBundle accessors
         tb = tangentMAN_M
         @test tb isa VBundle
-        @test !tb.isdual
-        @test tb.isdual   == false
+        @test tb.isref
+        @test tb.isref   == true
         @test tb.dim      == 4
         @test tb.manifold == :MAN_M
 
         cb = cotangentMAN_M
-        @test cb.isdual
-        @test cb.isdual == true
+        @test !cb.isref
+        @test cb.isref == false
 
         # dot access on Manifold / VBundle
         @test MAN_M.dim             == 4
@@ -458,7 +458,7 @@ end
 
         @test TS_T.manifold    == :TS_M
         @test TS_T.rank        == 2
-        @test TS_T.print_as    == :TS_T
+        @test TS_T.print_as    == "TS_T"
         @test TS_T.is_traceless == false
         @test TS_T.metric      == :ts_g
         @test TS_T.slots == [:cotangentTS_M, :cotangentTS_M]
@@ -532,7 +532,10 @@ end
         @def_metric pa_g PA_M
 
         @def_tensor PA_T [cotangentPA_M, cotangentPA_M] print_as=:Riemann
-        @test PA_T.print_as == :Riemann
+        @test PA_T.print_as == "Riemann"
+
+        @def_tensor PA_U [cotangentPA_M, cotangentPA_M] print_as="\\mathcal{R}"
+        @test PA_U.print_as == "\\mathcal{R}"
     end
 
 
@@ -675,6 +678,7 @@ end
         @test dfm_g.rank        == 2
         @test dfm_g.is_traceless == false
         @test dfm_g.metric       == :dfm_g   # self-referential
+        @test dfm_g.print_as     == "dfm_g"
         @test dfm_g.slots == [:cotangentDFM_M, :cotangentDFM_M]
         @test length(dfm_g.symmetries) == 1
         @test length(dfm_g.symmetries[1].group_elements) == 2   # symmetric(2)
@@ -769,7 +773,7 @@ end
         @def_tensor fw_W [cotangentFW_M, cotangentFW_M, cotangentFW_M, cotangentFW_M] symmetries=[riemann_symmetry()] traceless=true print_as=:Weyl
 
         @test fw_R.metric     == :fw_g
-        @test fw_W.print_as   == :Weyl
+        @test fw_W.print_as   == "Weyl"
         @test fw_W.is_traceless
 
         # canonical_rep over Riemann symmetry

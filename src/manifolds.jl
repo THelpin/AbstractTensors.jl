@@ -5,12 +5,12 @@
 #   - Manifolds and vector bundles are plain struct instances.
 #     @def_manifold binds M, tangentM, cotangentM as variables
 #     in the caller's scope, all queryable via dot access:
-#       M.dim, M.tangent_bundle, tangentM.isdual, etc.
+#       M.dim, M.tangent_bundle, tangentM.isref, etc.
 #   - All metadata lives in module-level registries.
 #   - Indices are registered via register_coordinate_index! /
 #     register_frame_index! from indices.jl.
-#   - VBundle.isdual is the single authoritative source for
-#     bundle variance (false = tangent, true = cotangent/dual).
+#   - VBundle.isref is the single authoritative source for
+#     bundle variance (true = tangent, false = cotangent/dual).
 #     No naming conventions are relied upon for this.
 #   - Coordinate index symbols are bound as contravariant CoordinateIndex;
 #     frame index symbols as contravariant FrameIndex.
@@ -73,7 +73,7 @@ Provides dot access to all metadata:
     tangentM.name             # :tangentM
     tangentM.manifold         # :M
     tangentM.dim              # 4
-    tangentM.isdual           # false
+    tangentM.isref            # true
     tangentM.dual             # :cotangentM
     tangentM.coordinate_indices  # [CoordinateIndex(:a1, :tangentM), ...]
     tangentM.frame_indices       # [FrameIndex(:A1, :tangentM), ...]
@@ -85,8 +85,8 @@ Provides dot access to all metadata:
 - `name`               : bundle name, e.g. `:tangentM`
 - `manifold`           : base manifold name, e.g. `:M`
 - `dim`                : fibre dimension
-- `isdual`             : `false` = primal (contravariant), `true` = dual
-                         (covariant). Authoritative for variance via
+- `isref`              : true if vbundle was the input to [`@def_vbundle`](@ref), false if it is the dual.
+                         true -> (ex: tangentM), false -> (ex: cotangentM). Authoritative for variance via
                          [`is_up`](@ref) / [`is_down`](@ref).
 - `dual`               : name of the paired dual bundle
 - `coordinate_indices` : [`CoordinateIndex`](@ref) objects for the coordinate
@@ -100,7 +100,7 @@ struct VBundle
     name::Symbol
     manifold::Symbol
     dim::Dim
-    isdual::Bool
+    isref::Bool
     dual::Symbol
     coordinate_indices::Vector{CoordinateIndex}
     frame_indices::Vector{FrameIndex}
@@ -238,7 +238,7 @@ end
 
 # ── helper: register coordinate frame in _BASES and bind variables ──────────
 function _gen_coord_frame_registration_expr(
-    primal_q      :: QuoteNode,
+    ref_q      :: QuoteNode,
     dual_q        :: QuoteNode,
     bind_cf       :: Symbol,
     bind_ccf      :: Symbol,
@@ -250,19 +250,19 @@ function _gen_coord_frame_registration_expr(
     bind_ccf_q   = QuoteNode(bind_ccf)
     print_cf_q   = QuoteNode(print_cf)
     print_ccf_q  = QuoteNode(print_ccf)
-    primal_key   = QuoteNode((primal_q.value, :coordinate))
+    ref_key   = QuoteNode((ref_q.value, :coordinate))
     dual_key     = QuoteNode((dual_q.value,   :coordinate))
     coord_msg    = QuoteNode(
-        "Defined coordinate frame $(print_cf) (binding :$(bind_cf)) on $(primal_q.value) " *
+        "Defined coordinate frame $(print_cf) (binding :$(bind_cf)) on $(ref_q.value) " *
         "and coordinate coframe $(print_ccf) (binding :$(bind_ccf)) on $(dual_q.value)"
     )
     quote
-        _warn_and_register_basis_binding!($(bind_cf_q),  $(primal_q), :coordinate, $(manifold_q))
+        _warn_and_register_basis_binding!($(bind_cf_q),  $(ref_q), :coordinate, $(manifold_q))
         _warn_and_register_basis_binding!($(bind_ccf_q), $(dual_q),   :coordinate, $(manifold_q))
 
-        _BASES[$(primal_key)] = Basis($(bind_cf_q),  $(primal_q), :coordinate, $(print_cf_q))
+        _BASES[$(ref_key)] = Basis($(bind_cf_q),  $(ref_q), :coordinate, $(print_cf_q))
         _BASES[$(dual_key)]   = Basis($(bind_ccf_q), $(dual_q),   :coordinate, $(print_ccf_q))
-        $(esc(bind_cf))       = _BASES[$(primal_key)]
+        $(esc(bind_cf))       = _BASES[$(ref_key)]
         $(esc(bind_ccf))      = _BASES[$(dual_key)]
         println($(coord_msg))
         nothing
@@ -273,7 +273,7 @@ end
 function _gen_moving_frame_registration_expr(
     frame_name    :: Symbol,
     coframe_name  :: Symbol,
-    primal_q      :: QuoteNode,
+    ref_q      :: QuoteNode,
     dual_q        :: QuoteNode,
     bind_mf       :: Symbol,
     bind_mcf      :: Symbol,
@@ -287,7 +287,7 @@ function _gen_moving_frame_registration_expr(
     print_mcf_q = QuoteNode(print_mcf)
     fn_q        = QuoteNode(frame_name)
     cfn_q       = QuoteNode(coframe_name)
-    primal_key  = QuoteNode((primal_q.value, :frame))
+    ref_key  = QuoteNode((ref_q.value, :frame))
     dual_key    = QuoteNode((dual_q.value,   :frame))
     frame_msg   = QuoteNode(
         "Defined frame bundle $(fn_q.value) (moving frame $(print_mf), binding :$(bind_mf)) " *
@@ -295,18 +295,18 @@ function _gen_moving_frame_registration_expr(
         "over $(manifold_q.value)"
     )
     quote
-        _warn_and_register_basis_binding!($(bind_mf_q),  $(primal_q), :frame, $(manifold_q))
+        _warn_and_register_basis_binding!($(bind_mf_q),  $(ref_q), :frame, $(manifold_q))
         _warn_and_register_basis_binding!($(bind_mcf_q), $(dual_q),   :frame, $(manifold_q))
 
-        _BASES[$(primal_key)] = Basis($(bind_mf_q),  $(primal_q), :frame, $(print_mf_q))
+        _BASES[$(ref_key)] = Basis($(bind_mf_q),  $(ref_q), :frame, $(print_mf_q))
         _BASES[$(dual_key)]   = Basis($(bind_mcf_q), $(dual_q),   :frame, $(print_mcf_q))
 
-        _FRAME_BUNDLES[$(fn_q)]  = FrameBundle($(fn_q),  $(primal_q), $(cfn_q), _BASES[$(primal_key)])
+        _FRAME_BUNDLES[$(fn_q)]  = FrameBundle($(fn_q),  $(ref_q), $(cfn_q), _BASES[$(ref_key)])
         _FRAME_BUNDLES[$(cfn_q)] = FrameBundle($(cfn_q), $(dual_q),   $(fn_q),  _BASES[$(dual_key)])
 
         $(esc(frame_name))   = _FRAME_BUNDLES[$(fn_q)]
         $(esc(coframe_name)) = _FRAME_BUNDLES[$(cfn_q)]
-        $(esc(bind_mf))      = _BASES[$(primal_key)]
+        $(esc(bind_mf))      = _BASES[$(ref_key)]
         $(esc(bind_mcf))     = _BASES[$(dual_key)]
 
         println($(frame_msg))
@@ -380,8 +380,8 @@ at definition time.
 ### Bindings in the caller's scope
 
 - `<name>`            → [`Manifold`](@ref) instance
-- `tangent<name>`     → [`VBundle`](@ref) (`isdual = false`)
-- `cotangent<name>`   → [`VBundle`](@ref) (`isdual = true`)
+- `tangent<name>`     → [`VBundle`](@ref) (`isref = true`)
+- `cotangent<name>`   → [`VBundle`](@ref) (`isref = false`)
 - `frame<name>`       → [`FrameBundle`](@ref) (moving frame bundle)
 - `coframe<name>`     → [`FrameBundle`](@ref) (moving coframe bundle)
 - coordinate frame bindings `cf_<name>`, `ccf_<name>` (default; display as `∂`, `dx`)
@@ -522,11 +522,11 @@ macro def_manifold(name, dim, coord_indices, frame_indices, kwargs...)
 
         # ── Register bundles ─────────────────────────────────────────────
         _VBUNDLES[$(tangent_symbol)] = VBundle(
-            $(tangent_symbol), $(name_symbol), _dim, false,
+            $(tangent_symbol), $(name_symbol), _dim, true,
             $(cotangent_symbol), _t_coord, _t_frame
         )
         _VBUNDLES[$(cotangent_symbol)] = VBundle(
-            $(cotangent_symbol), $(name_symbol), _dim, true,
+            $(cotangent_symbol), $(name_symbol), _dim, false,
             $(tangent_symbol), _c_coord, _c_frame
         )
 
@@ -664,7 +664,7 @@ function Base.getproperty(v::VBundle, field::Symbol)
 end
 
 function Base.propertynames(::VBundle, private::Bool=false)
-    (:name, :manifold, :dim, :isdual, :dual, :coordinate_indices, :frame_indices, :bases)
+    (:name, :manifold, :dim, :isref, :dual, :coordinate_indices, :frame_indices, :bases)
 end
 
 

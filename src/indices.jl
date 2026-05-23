@@ -250,27 +250,27 @@ Base.:+(t::AbstractIndex) = t
 """
     is_up(t::AbstractIndex) -> Bool
 
-Return `true` if `t` is contravariant (upper): its `vbundle` is primal
-(`isdual == false`), e.g. `:tangentM`.
+Return `true` if `t` is contravariant (upper): its `vbundle` is the reference
+bundle (`isref == true`), e.g. `:tangentM`.
 
 Also available as `t.is_up` via [`Base.getproperty`](@ref).
 """
 function is_up(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")
-    !_VBUNDLES[t.vbundle].isdual
+    _VBUNDLES[t.vbundle].isref
 end
 
 """
     is_down(t::AbstractIndex) -> Bool
 
-Return `true` if `t` is covariant (lower): its `vbundle` is dual
-(`isdual == true`), e.g. `:cotangentM`.
+Return `true` if `t` is covariant (lower): its `vbundle` is the dual of the
+reference bundle (`isref == false`), e.g. `:cotangentM`.
 
 Also available as `t.is_down` via [`Base.getproperty`](@ref).
 """
 function is_down(t::AbstractIndex)
     haskey(_VBUNDLES, t.vbundle) || error("VBundle $(t.vbundle) is not registered.")
-    _VBUNDLES[t.vbundle].isdual
+    !_VBUNDLES[t.vbundle].isref
 end
 
 function Base.getproperty(t::AbstractIndex, field::Symbol)
@@ -326,18 +326,18 @@ Base.hash(t::FrameIndex, h::UInt)      = hash((FrameIndex, t.symbol, t.vbundle),
 # =========================================
 
 # function Base.show(io::IO, t::AbstractIndex)
-#     prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : "+"
+#     prefix = (haskey(_VBUNDLES, t.vbundle) && !_VBUNDLES[t.vbundle].isref) ? "-" : "+"
 #     kind   = t isa CoordinateIndex ? "coord" : "frame"
 #     print(io, "$(prefix)$(t.symbol) ∈ $(t.vbundle) ($(kind))")
 # end
 
 function Base.show(io::IO, ::MIME"text/plain", t::AbstractIndex)
-    prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : ""
+    prefix = (haskey(_VBUNDLES, t.vbundle) && !_VBUNDLES[t.vbundle].isref) ? "-" : ""
     print(io, "$(prefix)$(t.symbol)")
 end
 
 function Base.show(io::IO, ::MIME"text/html", t::AbstractIndex)
-    prefix = (haskey(_VBUNDLES, t.vbundle) && _VBUNDLES[t.vbundle].isdual) ? "-" : ""
+    prefix = (haskey(_VBUNDLES, t.vbundle) && !_VBUNDLES[t.vbundle].isref) ? "-" : ""
     print(io, "$(prefix)$(t.symbol)")
 end
 
@@ -394,13 +394,13 @@ macro add_indices(manifold_name, idx_syms...)
         end
         _VBUNDLES[$(tangent_sym)] = VBundle(
             getfield(_tb_vb, :name), getfield(_tb_vb, :manifold), getfield(_tb_vb, :dim),
-            getfield(_tb_vb, :isdual), getfield(_tb_vb, :dual),
+            getfield(_tb_vb, :isref), getfield(_tb_vb, :dual),
             vcat(getfield(_tb_vb, :coordinate_indices), _extra_tb),
             getfield(_tb_vb, :frame_indices),
         )
         _VBUNDLES[$(cotangent_sym)] = VBundle(
             getfield(_ctb_vb, :name), getfield(_ctb_vb, :manifold), getfield(_ctb_vb, :dim),
-            getfield(_ctb_vb, :isdual), getfield(_ctb_vb, :dual),
+            getfield(_ctb_vb, :isref), getfield(_ctb_vb, :dual),
             vcat(getfield(_ctb_vb, :coordinate_indices), _extra_ct),
             getfield(_ctb_vb, :frame_indices),
         )

@@ -47,11 +47,11 @@ Define a new vector bundle `<name>` of fibre dimension `dim` over `manifold`,
 and its dual bundle `dual<name>`. Bind the following variables in the
 caller's scope:
 
-- `<name>`      → a [`VBundle`](@ref) instance (`isdual = false`)
-- `dual<name>`  → a [`VBundle`](@ref) instance (`isdual = true`)
+- `<name>`      → a [`VBundle`](@ref) instance (`isref = true`)
+- `dual<name>`  → a [`VBundle`](@ref) instance (`isref = false`)
 
 Each index symbol in `[idx1, idx2, ...]` is bound to a contravariant
-[`FrameIndex`](@ref) and registered to `<name>` (the primal bundle).
+[`FrameIndex`](@ref) and registered to `<name>` (the vbundle of reference).
 
 `dim` accepts a concrete integer or a bare symbol for parametric bundles.
 
@@ -61,8 +61,8 @@ Each index symbol in `[idx1, idx2, ...]` is bound to a contravariant
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
 @def_vbundle E M 3 [v1, v2, v3]    # rank-3 bundle and its dual over M
 
-E.isdual       # false
-dualE.isdual   # true
+E.isref       # true
+dualE.isref   # false
 v1.vbundle     # :E
 -v1            # FrameIndex(:v1, :dualE)
 ~~~
@@ -126,11 +126,11 @@ macro def_vbundle(name, manifold_name, dim, indices, kwargs...)
         local _d_indices = [FrameIndex(s, $(dual_symbol)) for s in $(index_symbols)]
 
         _VBUNDLES[$(name_symbol)] = VBundle(
-            $(name_symbol), $(manifold_symbol), _dim, false,
+            $(name_symbol), $(manifold_symbol), _dim, true,
             $(dual_symbol), CoordinateIndex[], _p_indices
         )
         _VBUNDLES[$(dual_symbol)] = VBundle(
-            $(dual_symbol), $(manifold_symbol), _dim, true,
+            $(dual_symbol), $(manifold_symbol), _dim, false,
             $(name_symbol), CoordinateIndex[], _d_indices
         )
 
@@ -225,7 +225,7 @@ end
 # =========================================
 
 function Base.show(io::IO, ::MIME"text/plain", v::VBundle)
-    variance_label = v.isdual ? "cotangent" : "tangent"
+    variance_label = v.isref ? "tangent" : "cotangent"
     bases_str = isempty(v.bases) ? "none" : join(string.(v.bases), ", ")
     print(io, "VBundle($(v.name), $(variance_label), dual=$(v.dual), " *
               "manifold=$(v.manifold), dim=$(v.dim), bases=[$bases_str])")
@@ -249,7 +249,7 @@ function Base.show(io::IO, ::MIME"text/html", v::VBundle)
             for b in v.bases
         ], ", ")
     end
-    variance_label = v.isdual ? "Dual (cotangent)" : "Standard (tangent)"
+    variance_label = v.isref ? "Standard (tangent)" : "Dual (cotangent)"
     coord_html = isempty(coord_strings) ? "<i>none</i>" : join(coord_strings, ", ")
     frame_html = isempty(frame_strings) ? "<i>none</i>" : join(frame_strings, ", ")
     print(io, """
