@@ -1,7 +1,7 @@
 # =========================================
 # scalar.jl — SymbolicTensors.jl
 #
-# Scalar coefficient layer for tensor algebra (TensorTerm coeffs).
+# Scalar coefficient layer for tensor algebra (TensorComponentTerm coeffs).
 # No Symbolics import here — extension adds Symbolics methods.
 # =========================================
 

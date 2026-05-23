@@ -2,7 +2,7 @@ using SymbolicTensors
 using SymbolicTensors: contractable, register_coordinate_index!, register_frame_index!,
     unregister_index!, index_home_vbundle, validate_indices, validate_contraction,
     is_dual_vbundles, show_registry, _BOUND_BASIS_SYMBOLS, FrameIndex,
-    TensorTerm, TensorSum, term, coeff_of, body_of, terms_of, is_zero,
+    TensorComponentTerm, TensorComponentSum, term, coeff_of, body_of, terms_of, is_zero,
     scalar_add, scalar_mul, is_scalar_zero
 using Test
 using Symbolics
@@ -1371,55 +1371,62 @@ end
     end
 
 
-    @testset "TensorTerm and TensorSum" begin
+    @testset "TensorComponentTerm and TensorComponentSum" begin
         _clear_all_registries!()
         @def_manifold TX_M 4 [tx_a, tx_b, tx_c, tx_d] [TXM_B1, TXM_B2, TXM_B3, TXM_B4]
         @def_metric tx_g tangentTX_M
         @def_tensor TX_T [cotangentTX_M, cotangentTX_M]
+        @def_tensor TX_F [cotangentTX_M, cotangentTX_M]
 
         gab = TX_T[tx_a, -tx_b]
         gab2 = TX_T[tx_c, -tx_d]
+        fab = TX_F[tx_a, -tx_b]
+        t_mixed = TX_T[tx_a, tx_a]   # contravariant slot 1 — different structure from gab
+        t_cov = TX_T[-tx_a, -tx_b]
 
         # 1. term construction
         t1 = term(gab)
-        @test t1 isa TensorTerm
+        @test t1 isa TensorComponentTerm
         @test coeff_of(t1) == 1
         @test body_of(t1) == gab
 
         # 2. merge same body
-        s = TensorTerm(3, gab) + TensorTerm(2, gab)
-        @test s isa TensorSum
+        s = TensorComponentTerm(3, gab) + TensorComponentTerm(2, gab)
+        @test s isa TensorComponentSum
         @test length(terms_of(s)) == 1
         @test coeff_of(terms_of(s)[1]) == 5
 
-        # 3. mismatch bodies
-        s2 = TensorTerm(1, gab) + TensorTerm(1, gab2)
+        # 3. mismatch bodies (different indices, same slot structure)
+        s2 = TensorComponentTerm(1, gab) + TensorComponentTerm(1, gab2)
         @test length(terms_of(s2)) == 2
 
         # 4. sugar and type-stable +
         s3 = 3 * gab + 2 * gab
-        @test s3 isa TensorSum
-        @test typeof(s3) <: TensorSum
+        @test s3 isa TensorComponentSum
+        @test typeof(s3) <: TensorComponentSum
         @test length(terms_of(s3)) == 1
         @test coeff_of(terms_of(s3)[1]) == 5
 
-        # 5. full cancellation → empty TensorSum, not scalar 0
-        z = TensorTerm(1, gab) + TensorTerm(-1, gab)
-        @test z isa TensorSum
+        # 5. full cancellation → empty sum, not scalar 0
+        z = TensorComponentTerm(1, gab) + TensorComponentTerm(-1, gab)
+        @test z isa TensorComponentSum
         @test is_zero(z)
         @test z !== 0
-        @test TensorSum([]) !== 0
+        @test TensorComponentSum([]) !== 0
 
         # 6. + never returns Int 0
         @test !(typeof(z) <: Integer)
 
         # 7. unary minus and typeof +
-        @test -t1 isa TensorTerm
+        @test -t1 isa TensorComponentTerm
         @test coeff_of(-t1) == -1
-        @test typeof(TensorTerm(1, gab) + TensorTerm(1, gab2)) <: TensorSum
+        @test typeof(TensorComponentTerm(1, gab) + TensorComponentTerm(1, gab2)) <:
+            TensorComponentSum
 
         # 8. structural distributivity
-        s4 = TensorSum([TensorTerm(1, gab), TensorTerm(1, gab2)])
+        s4 = TensorComponentSum([
+            TensorComponentTerm(1, gab), TensorComponentTerm(1, gab2)
+        ])
         d = 2 * s4
         @test length(terms_of(d)) == 2
         @test all(coeff_of(t) == 2 for t in terms_of(d))
@@ -1427,7 +1434,7 @@ end
         # 9. promote fallback
         @test scalar_add(3, 4.5) == 7.5
 
-        # 10. Symbol coeffs (homogeneous Symbol)
+        # 10. Symbol coeffs
         @test scalar_mul(2, 3) == 6
         @test !is_scalar_zero(:n)
 
@@ -1436,12 +1443,19 @@ end
         @test (repr(MIME"text/latex"(), s3); true)
         @test (repr(MIME"text/html"(), s3); true)
 
-        # 12. block TensorTerm * TensorTerm
+        # 12. block TensorComponentTerm * TensorComponentTerm
         @test_throws ArgumentError t1 * t1
 
         # 13. scalar + tensor error
         @test_throws ArgumentError 1 + t1
         @test_throws ArgumentError t1 + 1
+
+        # 14. incompatible slot structure for same tensor head
+        @test_throws ArgumentError t_cov + t_mixed
+        @test_throws ArgumentError fab + t_cov + t_mixed + 3 * t_cov
+
+        # 15. different tensor heads with same slot structure is OK
+        @test (fab + t_cov; true)
     end
 
 
@@ -1453,8 +1467,8 @@ end
 
         @variables x y
         gab = SY_T[sy_a, -sy_b]
-        expr = TensorTerm(3x, gab) + TensorTerm(2y, gab)
-        @test expr isa TensorSum
+        expr = TensorComponentTerm(3x, gab) + TensorComponentTerm(2y, gab)
+        @test expr isa TensorComponentSum
         @test length(terms_of(expr)) == 1
         @test is_scalar_like(terms_of(expr)[1].coeff)
     end
