@@ -22,6 +22,7 @@ Supertype for tensor-like objects in SymbolicTensors.jl.
 
 Concrete subtypes are defined in later includes (e.g. [`Tensor`](@ref),
 [`KroneckerDelta`](@ref)). Subtypes must implement
-[`print_as`](@ref `(SymbolicTensors.print_as)(::AbstractTensor)`).
+[`print_as`](@ref `(SymbolicTensors.print_as)(::AbstractTensor)`) and
+[`tensor_id`](@ref `(SymbolicTensors.tensor_id)(::AbstractTensor)`).
 """
 abstract type AbstractTensor end

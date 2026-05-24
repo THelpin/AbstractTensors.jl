@@ -1,8 +1,11 @@
 # Shared geometry for benchmark/benchmark.jl and benchmark/bench_sort.jl.
 # Included after `using SymbolicTensors` in the caller.
 
+using SymbolicTensors
 using SymbolicTensors: _MANIFOLDS, _VBUNDLES, _COORDINATE_INDICES, _FRAME_INDICES,
-    _TENSORS, _METRICS, _BASES, _FRAME_BUNDLES, _BOUND_BASIS_SYMBOLS
+    _TENSORS, _METRICS, _BASES, _FRAME_BUNDLES, _BOUND_BASIS_SYMBOLS,
+    _reset_tensor_counter!
+import SymbolicTensors: tensor_id
 
 function _clear_all_registries!()
     empty!(_MANIFOLDS)
@@ -14,6 +17,7 @@ function _clear_all_registries!()
     empty!(_BASES)
     empty!(_FRAME_BUNDLES)
     empty!(_BOUND_BASIS_SYMBOLS)
+    _reset_tensor_counter!()
     return nothing
 end
 
@@ -34,12 +38,12 @@ function setup_benchmark_geometry!()
     @def_tensor F [cotangentBM_M, cotangentBM_M]
     @def_tensor T [cotangentBM_M, cotangentBM_M]
 
-    # Simulated registry_id map (registration order); for bench_sort micro-benchmark.
+    # Simulated Dict lookup map for bench 4 (anti-pattern baseline).
     tensor_ids = Dict{Any, Int}(
-        g => 1,
-        H => 2,
-        F => 3,
-        T => 4,
+        g => tensor_id(g),
+        H => tensor_id(H),
+        F => tensor_id(F),
+        T => tensor_id(T),
     )
 
     components = [

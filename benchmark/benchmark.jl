@@ -29,6 +29,7 @@ b1 = @benchmark ($expr1 * $expr2) * $expr3
 display(b1)
 display((expr1 * expr2) * expr3)
 
+
 # ---------------------------------------------------------
 # Benchmark 2: commutative merge (1000 shuffled 4-factor products)
 # ---------------------------------------------------------
@@ -42,6 +43,15 @@ end
 println("\n--- Benchmark 2: Massive Commutative Merge ---")
 b2 = @benchmark sum($random_terms)
 display(b2)
+@btime sum($random_terms)
+@btime begin
+    terms = map(1:1000) do _
+        shuffled = shuffle($components)
+        prod = shuffled[1] * shuffled[2] * shuffled[3] * shuffled[4]
+        term(prod)
+    end
+    sum(terms)
+end
 
 final_result = sum(random_terms)
 merged = terms_of(final_result)

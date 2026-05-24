@@ -8,6 +8,7 @@
 #
 # AbstractTensor interface — every subtype must implement:
 #   print_as(T)   → String   display label
+#   tensor_id(T)  → Int      registration order for canonical sort (δ = 0)
 #
 # Dispatch table for Base.getindex:
 #   getindex(::Tensor,        idxs...) → in tensorComponents.jl (Tensor-specific)
@@ -34,6 +35,18 @@ print_as(T::AbstractTensor) =
     error("$(typeof(T)) must implement print_as(T::AbstractTensor) -> String")
 
 print_as(t::Tensor) = getfield(t, :print_as)
+
+"""
+    tensor_id(T::AbstractTensor) -> Int
+
+Internal registration id for canonical ordering of tensor heads.
+[`kronecker_delta`](@ref) is always `0`; registered [`Tensor`](@ref)s receive
+monotonic ids from [`@def_tensor`](@ref) / [`@def_metric`](@ref).
+"""
+tensor_id(T::AbstractTensor) =
+    error("$(typeof(T)) must implement tensor_id(T::AbstractTensor) -> Int")
+
+tensor_id(t::Tensor) = getfield(t, :tensor_id)
 
 
 # =========================================
@@ -78,6 +91,8 @@ The global Kronecker delta singleton. See [`KroneckerDelta`](@ref).
 const kronecker_delta = KroneckerDelta()
 
 print_as(::KroneckerDelta) = "δ"
+
+tensor_id(::KroneckerDelta) = 0
 
 
 # =========================================

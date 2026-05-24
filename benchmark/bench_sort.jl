@@ -1,11 +1,11 @@
-# Micro-benchmark: print_as string compare vs Dict lookup vs direct Int field.
+# Micro-benchmark: production tensor_id vs legacy print_as vs Dict lookup.
 # Included from benchmark/benchmark.jl after setup.
 
 """
     BenchHead
 
 Lightweight stand-in for a tensor head in sort micro-benchmarks (benchmark 5).
-Not used in production — models `registry_id::Int` + `print_as` without changing `Tensor`.
+Not used in production — models `tensor_id` + `print_as` field access on a mock struct.
 """
 struct BenchHead
     registry_id::Int
@@ -57,7 +57,15 @@ function run_sort_benchmark!(components, tensor_ids)
         for _ in 1:250, i in 1:4, j in 1:4
     ]
 
-    println("\n--- Benchmark 3: is_canonical_less (print_as) ---")
+    println("\n--- Benchmark 3: is_canonical_less (production tensor_id) ---")
+    b_prod = @benchmark begin
+        for (a, b) in $pairs
+            is_canonical_less(a, b)
+        end
+    end
+    display(b_prod)
+
+    println("\n--- Benchmark 3b: is_canonical_less (legacy print_as) ---")
     b_print = @benchmark begin
         for (a, b) in $pairs
             is_canonical_less_print_as(a, b)
@@ -78,9 +86,9 @@ function run_sort_benchmark!(components, tensor_ids)
         (heads[i], heads[j])
         for _ in 1:250, i in eachindex(heads), j in eachindex(heads)
     ]
-    
-    println("\n--- Benchmark 5: head order (String label vs Int registry_id field) ---")
-    println("    Mock struct only — models a.tensor.registry_id without changing Tensor.")
+
+    println("\n--- Benchmark 5: head order (String label vs Int tensor_id field) ---")
+    println("    Mock struct only — models Int field compare on a lightweight head type.")
     b_label = @benchmark begin
         for (a, b) in $head_pairs
             a.label < b.label

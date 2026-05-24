@@ -86,11 +86,12 @@ end
     is_canonical_less(a, b) -> Bool
 
 Total order for sorting product factors (commutative canonical form).
+Compares [`tensor_id`](@ref) of heads, then lexicographic index order.
 """
 function is_canonical_less(a::TensorComponent, b::TensorComponent)
-    pa = print_as(a.tensor)
-    pb = print_as(b.tensor)
-    pa != pb && return pa < pb
+    ka = tensor_id(a.tensor)
+    kb = tensor_id(b.tensor)
+    ka != kb && return ka < kb
     return _lex_less_indices(a.indices, b.indices)
 end
 

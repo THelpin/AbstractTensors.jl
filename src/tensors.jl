@@ -86,6 +86,7 @@ struct Tensor <: AbstractTensor
     known_traces::Vector{Any}
     print_as::String
     metric::Union{Symbol, Nothing}
+    tensor_id::Int
 end
 
 # ── Derived property access ────────────────────────────────────────────────
@@ -127,6 +128,27 @@ Populated by `@def_tensor` (and `@def_metric`), cleared entry-by-entry by
 Do not mutate directly — use the macro API.
 """
 const _TENSORS = Dict{Symbol, Tensor}()
+
+"""
+    _TENSOR_COUNTER :: Ref{Int}
+
+Monotonic registration counter for [`Tensor`](@ref) `tensor_id` assignment.
+Reserved: `kronecker_delta` uses `tensor_id == 0` via [`tensor_id`](@ref).
+Reset in tests via [`_reset_tensor_counter!`](@ref).
+"""
+const _TENSOR_COUNTER = Ref(0)
+
+"""Assign the next registered [`Tensor`](@ref) id (starts at 1). Internal."""
+function _next_tensor_id()
+    _TENSOR_COUNTER[] += 1
+    return _TENSOR_COUNTER[]
+end
+
+"""Reset [`_TENSOR_COUNTER`](@ref) to 0. Call when clearing [`_TENSORS`](@ref) in tests."""
+function _reset_tensor_counter!()
+    _TENSOR_COUNTER[] = 0
+    return nothing
+end
 
 
 # =========================================
@@ -463,6 +485,7 @@ macro def_tensor(tensor_name, vbundle_list, kwargs...)
         end
 
         # ── Construct and register ─────────────────────────────────────
+        local _tensor_id = _next_tensor_id()
         local _T = Tensor(
             _manifold_sym,
             _slots,
@@ -470,7 +493,8 @@ macro def_tensor(tensor_name, vbundle_list, kwargs...)
             $(traceless),
             Any[],
             $(print_as_node),
-            _metric_sym
+            _metric_sym,
+            _tensor_id,
         )
 
         _TENSORS[$(tensor_sym)] = _T
@@ -623,6 +647,7 @@ end
 
 export Tensor
 export _TENSORS, _METRICS
+export _reset_tensor_counter!
 export is_tensor
 export list_tensors, tensor_info
 export @def_tensor, @undef_tensor

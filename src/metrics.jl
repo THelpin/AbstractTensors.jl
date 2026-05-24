@@ -111,6 +111,7 @@ macro def_metric(name, vbundle_expr)
         local _slots = [_covariant, _covariant]
         local _syms = [symmetric(2)]
 
+        local _tensor_id = _next_tensor_id()
         local _T = Tensor(
             _manifold_sym,
             _slots,
@@ -118,7 +119,8 @@ macro def_metric(name, vbundle_expr)
             false,
             Any[],
             $(QuoteNode(print_as_str)),
-            $(name_sym)
+            $(name_sym),
+            _tensor_id,
         )
 
         # ── Register ─────────────────────────────────────────────────

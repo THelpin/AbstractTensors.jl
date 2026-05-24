@@ -4,7 +4,8 @@ using SymbolicTensors: contractable, register_coordinate_index!, register_frame_
     is_dual_vbundles, show_registry, _BOUND_BASIS_SYMBOLS, FrameIndex,
     TensorComponentTerm, TensorComponentSum, TensorComponentProduct,
     term, coeff_of, body_of, terms_of, is_zero, factors_of,
-    scalar_add, scalar_mul, is_scalar_zero
+    scalar_add, scalar_mul, is_scalar_zero, _reset_tensor_counter!
+import SymbolicTensors: tensor_id
 using Test
 using Symbolics
 
@@ -22,6 +23,7 @@ function _clear_all_registries!()
     empty!(_BASES)
     empty!(_FRAME_BUNDLES)
     empty!(_BOUND_BASIS_SYMBOLS)
+    _reset_tensor_counter!()
 end
 
 
@@ -471,6 +473,10 @@ end
         pn = propertynames(TS_T)
         @test :metric in pn
         @test :rank   in pn
+        @test :tensor_id ∉ pn
+
+        @test tensor_id(TS_T) == 2   # ts_g metric registered first
+        @test tensor_id(ts_g) == 1
     end
 
 
@@ -1345,6 +1351,7 @@ end
         @test kronecker_delta isa KroneckerDelta
         @test kronecker_delta isa AbstractTensor
         @test print_as(kronecker_delta) == "δ"
+        @test tensor_id(kronecker_delta) == 0
         @test is_abstract_tensor(kronecker_delta)
         @test is_kronecker_delta(kronecker_delta)
 
@@ -1369,6 +1376,7 @@ end
         @test KD_T isa Tensor
         @test KD_T isa AbstractTensor
         @test print_as(KD_T) == "KD_T"
+        @test tensor_id(KD_T) == 1
     end
 
 
