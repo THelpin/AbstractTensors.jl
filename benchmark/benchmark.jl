@@ -27,7 +27,7 @@ println("=========================================")
 println("\n--- Benchmark 1: Distributivity (FOIL) ---")
 b1 = @benchmark ($expr1 * $expr2) * $expr3
 display(b1)
-display((expr1 * expr2) * expr3)
+# display((expr1 * expr2) * expr3)
 
 
 # ---------------------------------------------------------
@@ -43,15 +43,6 @@ end
 println("\n--- Benchmark 2: Massive Commutative Merge ---")
 b2 = @benchmark sum($random_terms)
 display(b2)
-@btime sum($random_terms)
-@btime begin
-    terms = map(1:1000) do _
-        shuffled = shuffle($components)
-        prod = shuffled[1] * shuffled[2] * shuffled[3] * shuffled[4]
-        term(prod)
-    end
-    sum(terms)
-end
 
 final_result = sum(random_terms)
 merged = terms_of(final_result)
@@ -65,7 +56,7 @@ end
 # ---------------------------------------------------------
 # Benchmarks 3–5: is_canonical_less / head-order micro-benchmarks
 # ---------------------------------------------------------
-run_sort_benchmark!(components, tensor_ids)
+# run_sort_benchmark!(components, tensor_ids)
 
 println("\n=========================================")
 println("Done.")

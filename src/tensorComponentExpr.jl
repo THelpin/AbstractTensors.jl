@@ -60,12 +60,16 @@ Construct via [`_make_product`](@ref), not the inner constructor directly.
 """
 struct TensorComponentProduct
     factors::Vector{TensorComponent}
-
-    function TensorComponentProduct(factors::TensorComponent...)
-        sorted = sort(collect(factors); lt = is_canonical_less)
-        return new(sorted)
-    end
 end
+
+function TensorComponentProduct(factors::TensorComponent...)
+    v = collect(factors)
+    sort!(v; lt=is_canonical_less)
+    return TensorComponentProduct(v)
+end
+
+_product_sorted(v::Vector{TensorComponent}) =
+    TensorComponentProduct(v)
 
 factors_of(p::TensorComponentProduct) = p.factors
 
@@ -134,17 +138,104 @@ end
 
 Geometric product of two term bodies (component and/or product).
 """
-function _multiply_bodies(a::TensorComponent, b::TensorComponent)
-    _make_product(a, b)
+function _multiply_bodies(
+    a::TensorComponent,
+    b::TensorComponent,
+)
+    if is_canonical_less(a, b)
+        return _product_sorted(TensorComponent[a, b])
+    else
+        return _product_sorted(TensorComponent[b, a])
+    end
 end
-function _multiply_bodies(a::TensorComponent, b::TensorComponentProduct)
-    _make_product(a, b.factors...)
+function _multiply_bodies(
+    a::TensorComponent,
+    b::TensorComponentProduct,
+)
+    v = _insert_sorted(b.factors, a)
+    return _product_sorted(v)
 end
-function _multiply_bodies(a::TensorComponentProduct, b::TensorComponent)
-    _make_product(a.factors..., b)
+function _multiply_bodies(
+    a::TensorComponentProduct,
+    b::TensorComponent,
+)
+    v = _insert_sorted(a.factors, b)
+    return _product_sorted(v)
 end
-function _multiply_bodies(a::TensorComponentProduct, b::TensorComponentProduct)
-    _make_product(a.factors..., b.factors...)
+function _multiply_bodies(
+    a::TensorComponentProduct,
+    b::TensorComponentProduct,
+)
+    v = _merge_sorted_factors(a.factors, b.factors)
+    return _product_sorted(v)
+end
+
+function _insert_sorted(
+    factors::Vector{TensorComponent},
+    x::TensorComponent,
+)
+    out = Vector{TensorComponent}(undef, length(factors)+1)
+
+    inserted = false
+    j = 1
+
+    @inbounds for i in eachindex(factors)
+        fi = factors[i]
+
+        if !inserted && is_canonical_less(x, fi)
+            out[j] = x
+            j += 1
+            inserted = true
+        end
+
+        out[j] = fi
+        j += 1
+    end
+
+    if !inserted
+        out[end] = x
+    end
+
+    return out
+end
+
+function _merge_sorted_factors(
+    a::Vector{TensorComponent},
+    b::Vector{TensorComponent},
+)
+    na = length(a)
+    nb = length(b)
+
+    out = Vector{TensorComponent}(undef, na + nb)
+
+    ia = 1
+    ib = 1
+    k = 1
+
+    @inbounds while ia <= na && ib <= nb
+        if is_canonical_less(a[ia], b[ib])
+            out[k] = a[ia]
+            ia += 1
+        else
+            out[k] = b[ib]
+            ib += 1
+        end
+        k += 1
+    end
+
+    @inbounds while ia <= na
+        out[k] = a[ia]
+        ia += 1
+        k += 1
+    end
+
+    @inbounds while ib <= nb
+        out[k] = b[ib]
+        ib += 1
+        k += 1
+    end
+
+    return out
 end
 
 term(body::TensorComponentProduct) = TensorComponentTerm(one_scalar(1), body)
@@ -249,7 +340,7 @@ function validate(s::TensorComponentSum)
 end
 
 _collect_terms(t::TensorComponentTerm) = [t]
-_collect_terms(s::TensorComponentSum) = collect(s.terms)
+_collect_terms(s::TensorComponentSum)  = s.terms
 
 """
     _merge_terms(raw_terms) -> Vector{TensorComponentTerm}
@@ -302,14 +393,17 @@ end
 # 5.  Addition
 # =========================================
 
-Base.:+(a::TensorComponentTerm, b::TensorComponentTerm) =
-    TensorComponentSum(TensorComponentTerm[a, b])
-Base.:+(a::TensorComponentTerm, b::TensorComponentSum) =
-    TensorComponentSum(vcat(_collect_terms(a), _collect_terms(b)))
-Base.:+(a::TensorComponentSum, b::TensorComponentTerm) =
-    TensorComponentSum(vcat(_collect_terms(a), _collect_terms(b)))
-Base.:+(a::TensorComponentSum, b::TensorComponentSum) =
-    TensorComponentSum(vcat(_collect_terms(a), _collect_terms(b)))
+Base.:+(a::TensorComponentTerm{CA,BA}, b::TensorComponentTerm{CB,BB}) where {CA,BA,CB,BB} =
+    TensorComponentSum([a, b])
+
+Base.:+(a::TensorComponentTerm{C,B}, b::TensorComponentSum{TB}) where {C,B,TB} =
+    TensorComponentSum(vcat([a], b.terms))
+
+Base.:+(a::TensorComponentSum{TA}, b::TensorComponentTerm{C,B}) where {TA,C,B} =
+    TensorComponentSum(vcat(a.terms, [b]))
+
+Base.:+(a::TensorComponentSum{TA}, b::TensorComponentSum{TB}) where {TA,TB} =
+    TensorComponentSum(vcat(a.terms, b.terms))
 
 """
     Base.sum(terms::AbstractArray{<:TensorComponentTerm})
