@@ -1448,12 +1448,16 @@ end
         @test_throws ArgumentError 1 + t1
         @test_throws ArgumentError t1 + 1
 
-        # 13. incompatible slot structure for same tensor head
-        @test_throws ArgumentError t_cov + t_mixed
-        @test_throws ArgumentError fab + t_cov + t_mixed + 3 * t_cov
+        # 13. incompatible slot structure — opt-in via validate
+        s_bad = t_cov + t_mixed
+        @test length(terms_of(s_bad)) == 2
+        @test_throws ArgumentError validate(s_bad)
+        s_mixed = fab + t_cov + t_mixed + 3 * t_cov
+        @test_throws ArgumentError validate(s_mixed)
 
         # 14. different tensor heads with same slot structure is OK
-        @test (fab + t_cov; true)
+        s_ok = fab + t_cov
+        @test validate(s_ok) === s_ok
 
         # 15. bulk sum — one merge pass (not chained + fold)
         bulk = [term(gab), term(gab2), term(gab)]
@@ -1502,9 +1506,11 @@ end
         )
         @test coeff_of(t_with_T) == 4
 
-        # 3. incompatible slot structure still errors
+        # 3. incompatible slot structure — opt-in via validate
         t_mixed = TP_T[tp_a1, tp_a1]
-        @test_throws ArgumentError T_comp + t_mixed
+        s_bad = T_comp + t_mixed
+        @test length(terms_of(s_bad)) == 2
+        @test_throws ArgumentError validate(s_bad)
 
         # 4. term × term: coeffs multiply, body is product
         tt = term(g_comp) * term(F_comp)

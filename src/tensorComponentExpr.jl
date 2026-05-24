@@ -159,8 +159,7 @@ Base.:*(p::TensorComponentProduct, b::TensorComponentTerm) = term(p) * b
 Finite sum of [`TensorComponentTerm`](@ref)s. Normalization (merge by body,
 drop zero coeffs) runs only in the inner constructor.
 
-Per tensor head, all terms must share the same slot vbundle structure (variance
-pattern); see [`_slot_structure`](@ref).
+Summand slot homogeneity is **not** checked here; call [`validate`](@ref) explicitly.
 
 The zero element is `TensorComponentSum([])` — use [`is_zero`](@ref), not `== 0`.
 """
@@ -174,7 +173,6 @@ struct TensorComponentSum{T <: TensorComponentTerm} <: AbstractTensorComponentEx
             )
         end
         terms = Vector{TensorComponentTerm}(raw_terms)
-        _validate_sum_slot_structure!(terms)
         final_terms = _merge_terms(terms)
         if isempty(final_terms)
             return new{TensorComponentTerm{Int, TensorComponent}}(
@@ -214,6 +212,7 @@ _sum_body_head(prod::TensorComponentProduct) = Tuple(c.tensor for c in prod.fact
     _validate_sum_slot_structure!(terms)
 
 For each tensor head (or product head tuple), require identical slot structure.
+Used by [`validate`](@ref); not called from the [`TensorComponentSum`](@ref) constructor.
 """
 function _validate_sum_slot_structure!(terms::Vector{<:TensorComponentTerm})
     sigs = Dict{Any, Tuple{Vararg{Symbol}}}()
@@ -234,6 +233,21 @@ function _validate_sum_slot_structure!(terms::Vector{<:TensorComponentTerm})
         end
     end
     return nothing
+end
+
+"""
+    validate(expr::AbstractTensorComponentExpr)
+
+Check summand slot homogeneity in [`TensorComponentSum`](@ref)s: for each tensor
+head, all terms must share the same slot vbundle structure (variance pattern).
+
+Returns `expr` unchanged when valid. Not invoked automatically by `+` or `sum`.
+"""
+validate(t::TensorComponentTerm) = t
+
+function validate(s::TensorComponentSum)
+    _validate_sum_slot_structure!(terms_of(s))
+    return s
 end
 
 _collect_terms(t::TensorComponentTerm) = [t]
@@ -555,5 +569,5 @@ end
 
 export AbstractTensorComponentExpr, TensorComponentTerm, TensorComponentSum
 export TensorComponentProduct, factors_of
-export term, coeff_of, body_of, terms_of, is_zero
+export term, coeff_of, body_of, terms_of, is_zero, validate
 export is_canonical_less
