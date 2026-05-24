@@ -1413,9 +1413,6 @@ end
         @test occursin("metrics on other tensors", string(err_wrong_order.value))
         @test_throws ErrorException kronecker_delta[kd_a1, -KDM_B1]
 
-        @def_metric kd_g tangentKD_M
-        @test_throws ErrorException kronecker_delta[-kd_a1, kd_a2]
-
         @def_vbundle KD_E KD_M 2 [KD_B1, KD_B2]
         comp_e = kronecker_delta[KD_B1, -KD_B2]
         @test comp_e.indices[1].vbundle == :KD_E
@@ -1426,6 +1423,9 @@ end
         @test KD_T isa AbstractTensor
         @test print_as(KD_T) == "KD_T"
         @test tensor_id(KD_T) == 1
+
+        @def_metric kd_g tangentKD_M
+        @test_throws ErrorException kronecker_delta[-kd_a1, kd_a2]
     end
 
 

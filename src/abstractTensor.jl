@@ -237,8 +237,7 @@ function Base.getindex(δ::KroneckerDelta, idxs...)
             "KroneckerDelta: by convention δ is written δ^i_j — contravariant " *
             "index first, covariant second. The first index :$(idx1.symbol) must be " *
             "contravariant (reference vbundle, isref=true); got :$(idx1.vbundle) " *
-            "(isref=false). Indices are not raised or lowered at construction, and " *
-            "metrics on other tensors do not apply to kronecker_delta. " *
+            "(isref=false). Indices cannot be raised or lowered by a metric. " *
             "Did you mean kronecker_delta[$(idx2.symbol), -$(idx1.symbol)] for the " *
             "canonical slot order?"
         )
