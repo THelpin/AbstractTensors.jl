@@ -59,7 +59,7 @@ Canonical sorted product of two or more [`TensorComponent`](@ref) factors.
 Construct via [`_make_product`](@ref), not the inner constructor directly.
 """
 struct TensorComponentProduct
-    factors::Tuple{Vararg{TensorComponent}}
+    factors::Vector{TensorComponent}
 
     function TensorComponentProduct(factors::TensorComponent...)
         length(factors) >= 2 ||
@@ -67,7 +67,7 @@ struct TensorComponentProduct
                 "TensorComponentProduct requires at least 2 factors; " *
                 "use `_make_product` for flattening."
             ))
-        sorted = Tuple(sort(collect(factors); lt = is_canonical_less))
+        sorted = sort(collect(factors); lt = is_canonical_less)
         return new(sorted)
     end
 end
