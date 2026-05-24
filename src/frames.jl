@@ -90,6 +90,17 @@ on a [`Basis`](@ref).
     mcf_M[A1] → BasisElement(Basis(:mcf_M, :cotangentM, :frame, "θ"), ...)
     cf_M[-a1] → BasisElement(Basis(:cf_M, :tangentM, :coordinate, "∂"), ...)
     mf_M[-A1] → BasisElement(Basis(:mf_M, :tangentM, :frame, "e"), ...)
+
+### Canonical pairing
+
+Call one [`BasisElement`](@ref) on another (cobasis on basis) to obtain a
+[`TensorComponent`](@ref) for [`kronecker_delta`](@ref):
+
+~~~julia
+(ccf_M[a1])(cf_M[-a2])   # δ[a1, -a2]
+(cf_M[-a2])(ccf_M[a1])   # same (order-independent)
+(mcf_M[A1])(mf_M[-A2])   # δ[A1, -A2]
+~~~
 """
 struct BasisElement
     basis::Basis
@@ -356,6 +367,92 @@ function Base.getindex(b::Basis, idx::AbstractIndex)
 
     BasisElement(b, idx)
 end
+
+# =========================================
+# 10b. BasisElement canonical pairing
+# =========================================
+
+"""
+    _roles_for_basis_pairing(be1::BasisElement, be2::BasisElement) -> (BasisElement, BasisElement)
+
+Classify `be1` and `be2` as `(cobasis_element, basis_element)` for canonical pairing.
+The cobasis element lives on the dual (non-reference) vbundle; the basis element on
+the reference vbundle.
+
+Errors if the pair is not a valid cobasis/basis dual, basis kinds differ, or
+manifolds differ.
+"""
+function _roles_for_basis_pairing(be1::BasisElement, be2::BasisElement)
+    ctx = "BasisElement pairing"
+    vb1, vb2 = be1.basis.vbundle, be2.basis.vbundle
+
+    haskey(_VBUNDLES, vb1) && haskey(_VBUNDLES, vb2) ||
+        error("$ctx: basis references an unregistered vbundle.")
+
+    vb1 == vb2 &&
+        error(
+            "$ctx: cannot pair two elements from the same vbundle :$vb1. " *
+            "Pair a cobasis element (e.g. $(be1.basis.print_as)) with a dual basis " *
+            "element (e.g. ∂ or e on the reference bundle)."
+        )
+
+    is_dual_vbundles(vb1, vb2) ||
+        error(
+            "$ctx: bases must be on dual vbundles; got :$vb1 and :$vb2."
+        )
+
+    be1.basis.type == be2.basis.type ||
+        error(
+            "$ctx: both elements must use the same basis kind " *
+            "(:coordinate with :coordinate or :frame with :frame). " *
+            "Got :$(be1.basis.type) ($(be1.basis.print_as)) and " *
+            ":$(be2.basis.type) ($(be2.basis.print_as))."
+        )
+
+    m1 = _VBUNDLES[vb1].manifold
+    m2 = _VBUNDLES[vb2].manifold
+    m1 == m2 ||
+        error(
+            "$ctx: elements belong to different manifolds :$m1 and :$m2."
+        )
+
+    if _VBUNDLES[vb1].isref
+        return be2, be1
+    else
+        return be1, be2
+    end
+end
+
+"""
+    (be1::BasisElement)(be2::BasisElement) -> TensorComponent
+    basis_pair(be1::BasisElement, be2::BasisElement) -> TensorComponent
+
+Canonical pairing of dual basis elements: cobasis applied to basis yields
+[`kronecker_delta`](@ref) with contravariant index from the cobasis element and
+covariant index from the basis element. Order of arguments does not matter.
+
+# Examples
+~~~julia
+(ccf_M[a1])(cf_M[-a2]) == kronecker_delta[a1, -a2]
+(mcf_M[A1])(mf_M[-A2]) == kronecker_delta[A1, -A2]
+~~~
+"""
+function (be1::BasisElement)(be2::BasisElement)
+    cob, bas = _roles_for_basis_pairing(be1, be2)
+    is_up(cob.index) ||
+        error(
+            "BasisElement pairing: cobasis index :$(cob.index.symbol) must be " *
+            "contravariant; got vbundle :$(cob.index.vbundle)."
+        )
+    is_down(bas.index) ||
+        error(
+            "BasisElement pairing: basis index :$(bas.index.symbol) must be " *
+            "covariant; got vbundle :$(bas.index.vbundle)."
+        )
+    return TensorComponent(kronecker_delta, AbstractIndex[cob.index, bas.index])
+end
+
+basis_pair(be1::BasisElement, be2::BasisElement) = be1(be2)
 
 # =========================================
 # 11. @def_frame_bundle macro
@@ -732,4 +829,4 @@ export ExpansionStyle, CoordinateStyle, FrameStyle, Coordinate, Frame
 export _BASES, _FRAME_BUNDLES, _BOUND_BASIS_SYMBOLS
 export basis_for_vbundle, bases_for_vbundle
 export @def_frame_bundle, @undef_frame_bundle
-export basis_expansion
+export basis_expansion, basis_pair

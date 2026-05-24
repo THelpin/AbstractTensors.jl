@@ -288,14 +288,14 @@ is_kronecker_delta(x) = x isa KroneckerDelta
 # =========================================
 
 function Base.show(io::IO, ::MIME"text/plain", ::KroneckerDelta)
-    print(io, "KroneckerDelta δ  (global singleton, bundle-agnostic)")
+    print(io, "KroneckerDelta δ  (global singleton, vbundle-agnostic)")
 end
 
 function Base.show(io::IO, ::MIME"text/html", ::KroneckerDelta)
     print(io,
         "<span style=\"font-style:italic;\">δ</span> " *
         "<span style=\"color:#888;font-size:0.9em;\">" *
-        "(Kronecker delta, bundle-agnostic)</span>"
+        "(Kronecker delta, vbundle-agnostic)</span>"
     )
 end
 
