@@ -167,21 +167,11 @@ The zero element is `TensorComponentSum([])` — use [`is_zero`](@ref), not `== 
 struct TensorComponentSum{T <: TensorComponentTerm} <: AbstractTensorComponentExpr
     terms::Vector{T}
 
-    function TensorComponentSum(raw_terms::AbstractVector)
-        if isempty(raw_terms)
-            return new{TensorComponentTerm{Int, TensorComponent}}(
-                TensorComponentTerm{Int, TensorComponent}[]
-            )
-        end
-        terms = Vector{TensorComponentTerm}(raw_terms)
-        final_terms = _merge_terms(terms)
-        if isempty(final_terms)
-            return new{TensorComponentTerm{Int, TensorComponent}}(
-                TensorComponentTerm{Int, TensorComponent}[]
-            )
-        end
-        TT = eltype(final_terms)
-        return new{TT}(final_terms)
+    function TensorComponentSum(raw_terms::AbstractVector{T}) where {T <: TensorComponentTerm}
+        isempty(raw_terms) && return new{T}(T[])
+        final_terms = _merge_terms(raw_terms)
+        isempty(final_terms) && return new{T}(T[])
+        return new{eltype(final_terms)}(final_terms)
     end
 end
 
@@ -259,33 +249,37 @@ _collect_terms(s::TensorComponentSum) = collect(s.terms)
 
 Merge by `body` using `Dict` keyed by body (`==` authoritative on collision).
 Drop zero coeffs.
+
+Avoids slicing `raw_terms[2:end]` (which allocates a copy); iterates by index
+instead. `sizehint!` prevents Dict rehashing on large inputs.
 """
-function _merge_terms(raw_terms::Vector{<:TensorComponentTerm})
-    isempty(raw_terms) && return TensorComponentTerm[]
+function _merge_terms(raw_terms::AbstractVector{T}) where {T <: TensorComponentTerm}
+    isempty(raw_terms) && return T[]                    # same type as input
     B = typeof(raw_terms[1].body)
     C = typeof(raw_terms[1].coeff)
-    for t in raw_terms[2:end]
+    for i in 2:lastindex(raw_terms)
+        t = raw_terms[i]
         C = promote_type(C, typeof(t.coeff))
         B = typejoin(B, typeof(t.body))
     end
     merged = Dict{B, C}()
+    sizehint!(merged, length(raw_terms))
     for t in raw_terms
         b = t.body
-        c = t.coeff
         if haskey(merged, b)
-            merged[b] = scalar_add(merged[b], c)
+            merged[b] = scalar_add(merged[b], t.coeff)
         else
-            merged[b] = c
+            merged[b] = t.coeff
         end
     end
     out = TensorComponentTerm{C, B}[]
+    sizehint!(out, length(merged))
     for (b, c) in merged
         is_scalar_zero(c) && continue
         push!(out, TensorComponentTerm(c, b))
     end
     return out
 end
-
 
 # =========================================
 # 5.  Addition
