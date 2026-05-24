@@ -58,27 +58,52 @@ body_of(t::TensorComponentTerm)  = t.body
 Canonical sorted product of two or more [`TensorComponent`](@ref) factors.
 Construct via [`_make_product`](@ref), not the inner constructor directly.
 """
-struct TensorComponentProduct
-    factors::Vector{TensorComponent}
+struct TensorComponentProduct{N}
+    factors::NTuple{N, TensorComponent}
+
+    function TensorComponentProduct{N}(factors::NTuple{N, TensorComponent}) where N
+        N >= 2 || throw(ArgumentError(
+            "TensorComponentProduct requires at least 2 factors"))
+        sorted = _sort_ntuple(factors)
+        return new{N}(sorted)
+    end
 end
 
-function TensorComponentProduct(factors::TensorComponent...)
-    v = collect(factors)
-    sort!(v; lt=is_canonical_less)
-    return TensorComponentProduct(v)
+# Sort a small NTuple without heap allocation using insertion sort
+@generated function _sort_ntuple(t::NTuple{N, TensorComponent}) where N
+    # Generate an unrolled insertion sort at compile time
+    stmts = Any[]
+    vars = [Symbol(:x, i) for i in 1:N]
+    for i in 1:N
+        push!(stmts, :($(vars[i]) = t[$i]))
+    end
+    # Insertion sort on vars
+    for i in 2:N
+        for j in i:-1:2
+            push!(stmts, quote
+                if is_canonical_less($(vars[j]), $(vars[j-1]))
+                    $(vars[j]), $(vars[j-1]) = $(vars[j-1]), $(vars[j])
+                end
+            end)
+        end
+    end
+    push!(stmts, :(return ($(vars...),)))
+    return Expr(:block, stmts...)
 end
-
-_product_sorted(v::Vector{TensorComponent}) =
-    TensorComponentProduct(v)
 
 factors_of(p::TensorComponentProduct) = p.factors
 
-function _lex_less_indices(a::Vector{AbstractIndex}, b::Vector{AbstractIndex})
-    for (ia, ib) in zip(a, b)
+function _lex_less_indices(a::Vector{AbstractIndex}, b::Vector{AbstractIndex})::Bool
+    na = length(a)
+    nb = length(b)
+    n = min(na, nb)
+    @inbounds for i in 1:n
+        ia = a[i]
+        ib = b[i]
         ia == ib && continue
         return isless(ia, ib)
     end
-    return length(a) < length(b)
+    return na < nb
 end
 
 """
@@ -87,27 +112,33 @@ end
 Total order for sorting product factors (commutative canonical form).
 Compares [`tensor_id`](@ref) of heads, then lexicographic index order.
 """
-function is_canonical_less(a::TensorComponent, b::TensorComponent)
+function is_canonical_less(a::TensorComponent, b::TensorComponent)::Bool
     ka = tensor_id(a.tensor)
     kb = tensor_id(b.tensor)
     ka != kb && return ka < kb
     return _lex_less_indices(a.indices, b.indices)
 end
 
-function is_canonical_less(a::TensorComponentProduct, b::TensorComponentProduct)
-    for (fa, fb) in zip(a.factors, b.factors)
+
+function is_canonical_less(a::TensorComponentProduct{N}, b::TensorComponentProduct{M})::Bool where {N, M}
+    n = min(N, M)
+    @inbounds for i in 1:n
+        fa = a.factors[i]
+        fb = b.factors[i]
         fa == fb && continue
         return is_canonical_less(fa, fb)
     end
-    return length(a.factors) < length(b.factors)
+    return N < M
 end
 
 # Fallbacks just in case a sum mixes single components and products
 is_canonical_less(a::TensorComponent, b::TensorComponentProduct) = true
 is_canonical_less(a::TensorComponentProduct, b::TensorComponent) = false
 
-Base.:(==)(p::TensorComponentProduct, q::TensorComponentProduct) = p.factors == q.factors
-Base.hash(p::TensorComponentProduct, h::UInt) = hash(p.factors, h)
+Base.:(==)(p::TensorComponentProduct{N}, q::TensorComponentProduct{M}) where {N,M} =
+    N == M && p.factors == q.factors
+Base.hash(p::TensorComponentProduct{N}, h::UInt) where N =
+hash(p.factors, h)
 
 _collect_product_factors(c::TensorComponent) = [c]
 _collect_product_factors(p::TensorComponentProduct) = collect(p.factors)
@@ -115,22 +146,13 @@ _collect_product_factors(p::TensorComponentProduct) = collect(p.factors)
 """
     _make_product(factors...) -> Union{TensorComponent, TensorComponentProduct}
 
-Flatten nested products; return a single component or a canonical product.
+    return a single component or a canonical product.
 """
 function _make_product(factors::TensorComponent...)
-    flat = TensorComponent[]
-    for x in factors
-        if x isa TensorComponent
-            push!(flat, x)
-        elseif x isa TensorComponentProduct
-            append!(flat, collect(x.factors))
-        else
-            throw(ArgumentError("_make_product: expected TensorComponent factors."))
-        end
-    end
-    length(flat) == 0 && throw(ArgumentError("empty product"))
-    length(flat) == 1 && return flat[1]
-    return TensorComponentProduct(flat...)
+    N = length(factors)
+    N == 0 && throw(ArgumentError("empty product"))
+    N == 1 && return factors[1]
+    return TensorComponentProduct{N}(factors)
 end
 
 """
@@ -138,104 +160,20 @@ end
 
 Geometric product of two term bodies (component and/or product).
 """
-function _multiply_bodies(
-    a::TensorComponent,
-    b::TensorComponent,
-)
-    if is_canonical_less(a, b)
-        return _product_sorted(TensorComponent[a, b])
-    else
-        return _product_sorted(TensorComponent[b, a])
-    end
-end
-function _multiply_bodies(
-    a::TensorComponent,
-    b::TensorComponentProduct,
-)
-    v = _insert_sorted(b.factors, a)
-    return _product_sorted(v)
-end
-function _multiply_bodies(
-    a::TensorComponentProduct,
-    b::TensorComponent,
-)
-    v = _insert_sorted(a.factors, b)
-    return _product_sorted(v)
-end
-function _multiply_bodies(
-    a::TensorComponentProduct,
-    b::TensorComponentProduct,
-)
-    v = _merge_sorted_factors(a.factors, b.factors)
-    return _product_sorted(v)
+function _multiply_bodies(a::TensorComponent, b::TensorComponent)
+    TensorComponentProduct{2}((a, b))  # skip _make_product entirely
 end
 
-function _insert_sorted(
-    factors::Vector{TensorComponent},
-    x::TensorComponent,
-)
-    out = Vector{TensorComponent}(undef, length(factors)+1)
-
-    inserted = false
-    j = 1
-
-    @inbounds for i in eachindex(factors)
-        fi = factors[i]
-
-        if !inserted && is_canonical_less(x, fi)
-            out[j] = x
-            j += 1
-            inserted = true
-        end
-
-        out[j] = fi
-        j += 1
-    end
-
-    if !inserted
-        out[end] = x
-    end
-
-    return out
+function _multiply_bodies(a::TensorComponent, b::TensorComponentProduct{N}) where N
+    TensorComponentProduct{N+1}((a, b.factors...))
 end
 
-function _merge_sorted_factors(
-    a::Vector{TensorComponent},
-    b::Vector{TensorComponent},
-)
-    na = length(a)
-    nb = length(b)
+function _multiply_bodies(a::TensorComponentProduct{N}, b::TensorComponent) where N
+    TensorComponentProduct{N+1}((a.factors..., b))
+end
 
-    out = Vector{TensorComponent}(undef, na + nb)
-
-    ia = 1
-    ib = 1
-    k = 1
-
-    @inbounds while ia <= na && ib <= nb
-        if is_canonical_less(a[ia], b[ib])
-            out[k] = a[ia]
-            ia += 1
-        else
-            out[k] = b[ib]
-            ib += 1
-        end
-        k += 1
-    end
-
-    @inbounds while ia <= na
-        out[k] = a[ia]
-        ia += 1
-        k += 1
-    end
-
-    @inbounds while ib <= nb
-        out[k] = b[ib]
-        ib += 1
-        k += 1
-    end
-
-    return out
+function _multiply_bodies(a::TensorComponentProduct{M}, b::TensorComponentProduct{N}) where {M,N}
+    TensorComponentProduct{M+N}((a.factors..., b.factors...))
 end
 
 term(body::TensorComponentProduct) = TensorComponentTerm(one_scalar(1), body)
@@ -265,11 +203,10 @@ The zero element is `TensorComponentSum([])` — use [`is_zero`](@ref), not `== 
 struct TensorComponentSum{T <: TensorComponentTerm} <: AbstractTensorComponentExpr
     terms::Vector{T}
 
-    function TensorComponentSum(raw_terms::AbstractVector{T}) where {T <: TensorComponentTerm}
-        isempty(raw_terms) && return new{T}(T[])
+    # Narrowed to Vector{T} to force concrete arrays
+    function TensorComponentSum(raw_terms::Vector{T}) where {T <: TensorComponentTerm}
         final_terms = _merge_terms(raw_terms)
-        isempty(final_terms) && return new{T}(T[])
-        return new{eltype(final_terms)}(final_terms)
+        return new{T}(final_terms)
     end
 end
 
@@ -351,41 +288,40 @@ Drop zero coeffs.
 Avoids slicing `raw_terms[2:end]` (which allocates a copy); iterates by index
 instead. `sizehint!` prevents Dict rehashing on large inputs.
 """
-function _merge_terms(raw_terms::AbstractVector{T}) where {T <: TensorComponentTerm}
-    isempty(raw_terms) && return T[]
+function _merge_terms(raw_terms::Vector{T}) where {T <: TensorComponentTerm}
+    isempty(raw_terms) && return raw_terms
     
-    # 1. Sort a copy of the array using our fast rules
-    sorted = sort(raw_terms, lt = (x, y) -> is_canonical_less(x.body, y.body))
+    # 1. Sort IN-PLACE! (Zero allocations)
+    sort!(raw_terms, lt = (x, y) -> is_canonical_less(x.body, y.body))
     
-    # 2. Linear Scan
-    out = T[]
-    sizehint!(out, 8) # Pre-allocate a small buffer
+    # 2. Pre-allocate exact buffer
+    out = Vector{T}(undef, length(raw_terms))
+    k = 0
     
-    # Use firstindex instead of 1
-    curr_body = sorted[firstindex(sorted)].body
-    curr_coeff = sorted[firstindex(sorted)].coeff
+    curr_body = raw_terms[1].body
+    curr_coeff = raw_terms[1].coeff
     
-    # Use lastindex instead of length
-    @inbounds for i in (firstindex(sorted) + 1):lastindex(sorted)
-        t = sorted[i]
+    @inbounds for i in 2:length(raw_terms)
+        t = raw_terms[i]
         if t.body == curr_body
-            # Same body -> accumulate coefficient
             curr_coeff = scalar_add(curr_coeff, t.coeff)
         else
-            # New body -> push previous (if non-zero) and reset
             if !is_scalar_zero(curr_coeff)
-                push!(out, TensorComponentTerm(curr_coeff, curr_body))
+                k += 1
+                out[k] = TensorComponentTerm(curr_coeff, curr_body)
             end
             curr_body = t.body
             curr_coeff = t.coeff
         end
     end
     
-    # Push the final accumulated term
     if !is_scalar_zero(curr_coeff)
-        push!(out, TensorComponentTerm(curr_coeff, curr_body))
+        k += 1
+        @inbounds out[k] = TensorComponentTerm(curr_coeff, curr_body)
     end
     
+    # Resize drops the unused trailing buffer (Zero allocations)
+    resize!(out, k)
     return out
 end
 
@@ -498,10 +434,38 @@ Base.:*(a::TensorComponent, s::TensorComponentSum) = term(a) * s
 Base.:*(s::TensorComponentSum, b::TensorComponent) = s * term(b)
 Base.:*(p::TensorComponentProduct, s::TensorComponentSum) = term(p) * s
 Base.:*(s::TensorComponentSum, p::TensorComponentProduct) = s * term(p)
-Base.:*(s1::TensorComponentSum, s2::TensorComponentSum) =
-    TensorComponentSum([t1 * t2 for t1 in s1.terms for t2 in s2.terms])
+function Base.:*(s1::TensorComponentSum, s2::TensorComponentSum)
+    terms1 = terms_of(s1)
+    terms2 = terms_of(s2)
+    n1 = length(terms1)
+    n2 = length(terms2)
 
+    if n1 == 0 || n2 == 0
+        return TensorComponentSum(empty(terms1))
+    end
 
+    # PEEK: Calculate the first term
+    first_prod = terms1[1] * terms2[1]
+    
+    # Send it to a Function Barrier. 
+    # This guarantees the compiler knows T_out exactly.
+    return _multiply_sums_barrier(terms1, terms2, n1, n2, first_prod)
+end
+function _multiply_sums_barrier(terms1::Vector{T1}, terms2::Vector{T2}, n1::Int, n2::Int, first_prod::T_out) where {T1, T2, T_out}
+    out = Vector{T_out}(undef, n1 * n2)
+    out[1] = first_prod
+    
+    k = 2
+    @inbounds for i in 1:n1
+        for j in 1:n2
+            (i == 1 && j == 1) && continue
+            out[k] = terms1[i] * terms2[j]
+            k += 1
+        end
+    end
+    
+    return TensorComponentSum(out)
+end
 # =========================================
 # 7.  Unary minus
 # =========================================

@@ -97,9 +97,9 @@ Call one [`BasisElement`](@ref) on another (cobasis on basis) to obtain a
 [`TensorComponent`](@ref) for [`kronecker_delta`](@ref):
 
 ~~~julia
-(ccf_M[a1])(cf_M[-a2])   # δ[a1, -a2]
-(cf_M[-a2])(ccf_M[a1])   # same (order-independent)
-(mcf_M[A1])(mf_M[-A2])   # δ[A1, -A2]
+ccf_M[a1](cf_M[-a2])   # δ[a1, -a2]
+cf_M[-a2](ccf_M[a1])   # same (order-independent)
+mcf_M[A1](mf_M[-A2])   # δ[A1, -A2]
 ~~~
 """
 struct BasisElement
