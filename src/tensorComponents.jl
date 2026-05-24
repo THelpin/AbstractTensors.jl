@@ -69,6 +69,17 @@ symmetry reduction is performed at construction time.
 struct TensorComponent
     tensor::AbstractTensor
     indices::Vector{AbstractIndex}
+    _hash::UInt
+
+    function TensorComponent(tensor::AbstractTensor, indices::Vector{AbstractIndex}, _hash::UInt)
+        new(tensor, indices, _hash)
+    end
+end
+
+function TensorComponent(tensor::AbstractTensor, indices::AbstractVector{<:AbstractIndex})
+    ti = Vector{AbstractIndex}(indices)
+    h = hash(objectid(tensor), hash(ti, UInt(0)))
+    return TensorComponent(tensor, ti, h)
 end
 
 
@@ -266,10 +277,9 @@ end
 # =========================================
 
 Base.:(==)(a::TensorComponent, b::TensorComponent) =
-    a.tensor === b.tensor && a.indices == b.indices
+    a._hash == b._hash && a.tensor === b.tensor && a.indices == b.indices
 
-Base.hash(e::TensorComponent, h::UInt) =
-    hash((objectid(e.tensor), e.indices), h)
+Base.hash(e::TensorComponent, h::UInt) = xor(e._hash, h)
 
 
 # =========================================

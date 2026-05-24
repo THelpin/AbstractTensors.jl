@@ -1344,6 +1344,29 @@ end
     end
 
 
+    @testset "TensorComponent — equality and hash" begin
+        _clear_all_registries!()
+        @def_manifold TH_M 4 [th_a1, th_a2, th_a3, th_a4] [THM_B1, THM_B2, THM_B3, THM_B4]
+        @def_metric th_g tangentTH_M
+        @def_tensor TH_T [cotangentTH_M, cotangentTH_M]
+
+        c1 = TH_T[th_a1, -th_a2]
+        c2 = TH_T[th_a1, -th_a2]
+        c3 = TH_T[th_a3, -th_a4]
+        @test c1 == c2
+        @test c1 !== c2
+        @test hash(c1) == hash(c2)
+        @test hash(c1, UInt(0xBEEF)) == hash(c2, UInt(0xBEEF))
+        @test c1 != c3
+        @test hash(c1) != hash(c3)
+
+        d1 = kronecker_delta[th_a1, -th_a2]
+        d2 = kronecker_delta[th_a1, -th_a2]
+        @test hash(d1) == hash(d2)
+        @test d1 == d2
+    end
+
+
     @testset "KroneckerDelta and AbstractTensor" begin
         _clear_all_registries!()
         @def_manifold KD_M 4 [kd_a1, kd_a2, kd_a3, kd_a4] [KDM_B1, KDM_B2, KDM_B3, KDM_B4]
