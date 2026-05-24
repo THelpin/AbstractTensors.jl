@@ -62,11 +62,6 @@ struct TensorComponentProduct
     factors::Vector{TensorComponent}
 
     function TensorComponentProduct(factors::TensorComponent...)
-        length(factors) >= 2 ||
-            throw(ArgumentError(
-                "TensorComponentProduct requires at least 2 factors; " *
-                "use `_make_product` for flattening."
-            ))
         sorted = sort(collect(factors); lt = is_canonical_less)
         return new(sorted)
     end
@@ -94,6 +89,18 @@ function is_canonical_less(a::TensorComponent, b::TensorComponent)
     ka != kb && return ka < kb
     return _lex_less_indices(a.indices, b.indices)
 end
+
+function is_canonical_less(a::TensorComponentProduct, b::TensorComponentProduct)
+    for (fa, fb) in zip(a.factors, b.factors)
+        fa == fb && continue
+        return is_canonical_less(fa, fb)
+    end
+    return length(a.factors) < length(b.factors)
+end
+
+# Fallbacks just in case a sum mixes single components and products
+is_canonical_less(a::TensorComponent, b::TensorComponentProduct) = true
+is_canonical_less(a::TensorComponentProduct, b::TensorComponent) = false
 
 Base.:(==)(p::TensorComponentProduct, q::TensorComponentProduct) = p.factors == q.factors
 Base.hash(p::TensorComponentProduct, h::UInt) = hash(p.factors, h)
@@ -254,30 +261,40 @@ Avoids slicing `raw_terms[2:end]` (which allocates a copy); iterates by index
 instead. `sizehint!` prevents Dict rehashing on large inputs.
 """
 function _merge_terms(raw_terms::AbstractVector{T}) where {T <: TensorComponentTerm}
-    isempty(raw_terms) && return T[]                    # same type as input
-    B = typeof(raw_terms[1].body)
-    C = typeof(raw_terms[1].coeff)
-    for i in 2:lastindex(raw_terms)
-        t = raw_terms[i]
-        C = promote_type(C, typeof(t.coeff))
-        B = typejoin(B, typeof(t.body))
-    end
-    merged = Dict{B, C}()
-    sizehint!(merged, length(raw_terms))
-    for t in raw_terms
-        b = t.body
-        if haskey(merged, b)
-            merged[b] = scalar_add(merged[b], t.coeff)
+    isempty(raw_terms) && return T[]
+    
+    # 1. Sort a copy of the array using our fast rules
+    sorted = sort(raw_terms, lt = (x, y) -> is_canonical_less(x.body, y.body))
+    
+    # 2. Linear Scan
+    out = T[]
+    sizehint!(out, 8) # Pre-allocate a small buffer
+    
+    # Use firstindex instead of 1
+    curr_body = sorted[firstindex(sorted)].body
+    curr_coeff = sorted[firstindex(sorted)].coeff
+    
+    # Use lastindex instead of length
+    @inbounds for i in (firstindex(sorted) + 1):lastindex(sorted)
+        t = sorted[i]
+        if t.body == curr_body
+            # Same body -> accumulate coefficient
+            curr_coeff = scalar_add(curr_coeff, t.coeff)
         else
-            merged[b] = t.coeff
+            # New body -> push previous (if non-zero) and reset
+            if !is_scalar_zero(curr_coeff)
+                push!(out, TensorComponentTerm(curr_coeff, curr_body))
+            end
+            curr_body = t.body
+            curr_coeff = t.coeff
         end
     end
-    out = TensorComponentTerm{C, B}[]
-    sizehint!(out, length(merged))
-    for (b, c) in merged
-        is_scalar_zero(c) && continue
-        push!(out, TensorComponentTerm(c, b))
+    
+    # Push the final accumulated term
+    if !is_scalar_zero(curr_coeff)
+        push!(out, TensorComponentTerm(curr_coeff, curr_body))
     end
+    
     return out
 end
 
