@@ -1021,6 +1021,27 @@ end
 
 
     # ─────────────────────────────────────────────────────────────────
+    @testset "BasisElement — canonical pairing" begin
+        _clear_all_registries!()
+        @def_manifold BP_M 4 [bp_a, bp_b, bp_c, bp_d] [BP_B1, BP_B2, BP_B3, BP_B4]
+
+        δ_coord = kronecker_delta[bp_a, -bp_b]
+        @test (ccf_BP_M[bp_a])(cf_BP_M[-bp_b]) == δ_coord
+        @test (cf_BP_M[-bp_b])(ccf_BP_M[bp_a]) == δ_coord
+        @test basis_pair(ccf_BP_M[bp_a], cf_BP_M[-bp_b]) == δ_coord
+
+        δ_frame = kronecker_delta[BP_B1, -BP_B2]
+        @test (mcf_BP_M[BP_B1])(mf_BP_M[-BP_B2]) == δ_frame
+        @test (mf_BP_M[-BP_B2])(mcf_BP_M[BP_B1]) == δ_frame
+
+        @test_throws ErrorException (ccf_BP_M[bp_a])(ccf_BP_M[bp_b])
+        @test_throws ErrorException (cf_BP_M[-bp_a])(cf_BP_M[-bp_b])
+        @test_throws ErrorException (ccf_BP_M[bp_a])(mf_BP_M[-BP_B1])
+        @test_throws ErrorException (ccf_BP_M[bp_a])(mcf_BP_M[BP_B1])
+    end
+
+
+    # ─────────────────────────────────────────────────────────────────
     @testset "basis_expansion — covariant tensor" begin
         _clear_all_registries!()
         @def_manifold COV_M 4 [cov_a, cov_b, cov_c, cov_d] [COVM_B1, COVM_B2, COVM_B3, COVM_B4]
@@ -1387,8 +1408,13 @@ end
         @test variance_matches_canonical(comp)
         @test print_as(comp.tensor) == "δ"
 
-        @test_throws ErrorException kronecker_delta[-kd_a1, kd_a2]
+        err_wrong_order = @test_throws ErrorException kronecker_delta[-kd_a1, kd_a2]
+        @test occursin("δ^i_j", string(err_wrong_order.value))
+        @test occursin("metrics on other tensors", string(err_wrong_order.value))
         @test_throws ErrorException kronecker_delta[kd_a1, -KDM_B1]
+
+        @def_metric kd_g tangentKD_M
+        @test_throws ErrorException kronecker_delta[-kd_a1, kd_a2]
 
         @def_vbundle KD_E KD_M 2 [KD_B1, KD_B2]
         comp_e = kronecker_delta[KD_B1, -KD_B2]
