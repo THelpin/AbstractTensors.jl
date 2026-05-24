@@ -61,7 +61,12 @@ The package-level Kronecker delta (identity tensor) singleton.
 `kronecker_delta` is the single global instance of this type. It is defined
 at package load time and requires no manifold or vbundle registration.
 
-It accepts any pair of indices `[idx_up, idx_down]` at runtime, provided:
+By convention, components are always written **δ^i_j**: contravariant index
+first, covariant index second. Variance is fixed at construction via each
+index's vbundle; indices are **not** raised or lowered, and metrics registered
+on other [`Tensor`](@ref) heads do not apply to `kronecker_delta`.
+
+At runtime, `[idx_up, idx_down]` must satisfy:
 - Both indices are of the same kind (`CoordinateIndex` or `FrameIndex`)
 - `idx_up` is contravariant: `_VBUNDLES[idx_up.vbundle].isref == true`
 - `idx_down` is covariant: `_VBUNDLES[idx_down.vbundle].isref == false`
@@ -70,9 +75,9 @@ It accepts any pair of indices `[idx_up, idx_down]` at runtime, provided:
 
 ### Usage
 
-    kronecker_delta[a1, -a2]   # identity on tangentM 
-    kronecker_delta[B1, -B2]   # identity on E 
-    kronecker_delta[-a1, a2]   # error: first index must be contravariant
+    kronecker_delta[a1, -a2]   # identity on tangentM (δ^{a1}_{a2})
+    kronecker_delta[B1, -B2]   # identity on E
+    kronecker_delta[-a1, a2]   # error: wrong slot order (even if a metric exists)
     kronecker_delta[a1, -B2]   # error: mixed index kinds
     kronecker_delta[a1, -a1]   # valid: same symbol allowed (trace = dim)
 
@@ -172,6 +177,10 @@ end
 
 Construct a [`TensorComponent`](@ref) for the Kronecker delta.
 
+**Convention:** always `kronecker_delta[idx_up, idx_down]` for δ^i_j. Slot
+variance is not relaxed by metrics on other tensors; use unary `-` (`flip`) on
+indices or reorder slots instead of expecting metric raising/lowering here.
+
 Validates:
 1. Exactly two indices.
 2. Both indices are the same kind (`CoordinateIndex` or `FrameIndex`).
@@ -183,13 +192,14 @@ Validates:
 # Examples
 ~~~julia
 @def_manifold M 4 [a1, a2, a3, a4] [A1, A2, A3, A4]
+@def_metric g tangentM
 kronecker_delta[a1, -a2]    # identity on tangentM
-kronecker_delta[A1, -A2]    # identity on tangentM (frame indices)
+g[a1, a2]                   # valid for g (metric relaxes slot variance)
+kronecker_delta[-a1, a2]    # error: wrong δ slot order (metric does not apply)
 
 @def_vbundle E M 3 [B1, B2, B3]
 kronecker_delta[B1, -B2]    # identity on E
 
-kronecker_delta[-a1, a2]    # error: first index must be contravariant
 kronecker_delta[a1, -B2]    # error: mixed index kinds (coord vs frame)
 kronecker_delta[a1, -a2, a3] # error: requires exactly 2 indices
 ~~~
@@ -224,19 +234,23 @@ function Base.getindex(δ::KroneckerDelta, idxs...)
     # First index contravariant (isref == true)
     _VBUNDLES[idx1.vbundle].isref ||
         error(
-            "KroneckerDelta: first index :$(idx1.symbol) must be contravariant " *
-            "(from a reference vbundle with isref=true). " *
-            "Got vbundle :$(idx1.vbundle) with isref=false. " *
-            "Did you mean kronecker_delta[$(idx2.symbol), -$(idx1.symbol)]?"
+            "KroneckerDelta: by convention δ is written δ^i_j — contravariant " *
+            "index first, covariant second. The first index :$(idx1.symbol) must be " *
+            "contravariant (reference vbundle, isref=true); got :$(idx1.vbundle) " *
+            "(isref=false). Indices are not raised or lowered at construction, and " *
+            "metrics on other tensors do not apply to kronecker_delta. " *
+            "Did you mean kronecker_delta[$(idx2.symbol), -$(idx1.symbol)] for the " *
+            "canonical slot order?"
         )
 
     # Second index covariant (isref == false)
     !_VBUNDLES[idx2.vbundle].isref ||
         error(
-            "KroneckerDelta: second index :$(idx2.symbol) must be covariant " *
-            "(from a dual vbundle with isref=false). " *
-            "Got vbundle :$(idx2.vbundle) with isref=true. " *
-            "Use -$(idx2.symbol) for the covariant form."
+            "KroneckerDelta: by convention δ is written δ^i_j — contravariant " *
+            "index first, covariant second. The second index :$(idx2.symbol) must be " *
+            "covariant (dual vbundle, isref=false); got :$(idx2.vbundle) " *
+            "(isref=true). Use -$(idx2.symbol) for the covariant form. " *
+            "Metrics on other tensors do not relax this rule."
         )
 
     # Same vbundle of reference
